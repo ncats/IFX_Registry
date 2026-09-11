@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ recipe.dataset }} · IFX Data Registry{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Datasets</a><span>/</span><span>{{ recipe.dataset }}</span></nav>
+<header class="page-heading dataset-heading">
+    <span class="kind-badge kind-derived">Derived recipe</span>
+    <h1>{{ recipe.dataset.source|sourcename }}</h1>
+    <p><span class="dataset-name">{{ recipe.dataset.dataset|datasetname }}</span><code>{{ recipe.dataset }}</code></p>
+</header>
+<section class="source-detail-card dataset-intro"><span class="eyebrow">Ready to build</span><h2>No registered versions yet</h2><p>This reusable Registry recipe can build its first immutable version from exact registered inputs.</p></section>
+{% if build_options %}
+    {% include "partials/derived_build_control.html" %}
+{% else %}
+    <section class="source-detail-card derived-build-card"><span class="eyebrow">Build unavailable</span><h2>Operational state unavailable</h2><p class="inline-message error">{{ build_options_error }}</p></section>
+{% endif %}
+{% endblock %}

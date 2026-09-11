@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}{{ snapshot.dataset }} {{ snapshot.version }} · IFX Data Registry{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Datasets</a><span>/</span><a href="/datasets/{{ kind.value }}/{{ snapshot.dataset.source }}/{{ snapshot.dataset.dataset }}">{{ snapshot.dataset }}</a><span>/</span><span>{{ snapshot.version }}</span></nav>
+<header class="page-heading dataset-heading">
+    <span class="kind-badge kind-{{ kind.value }}">{{ kind.value|title }}</span>
+    <h1>{{ snapshot.dataset.source|sourcename }}</h1>
+    <p><span class="dataset-name">{{ snapshot.dataset.dataset|datasetname }}</span><code>{{ snapshot.dataset }}:{{ snapshot.version }}</code></p>
+</header>
+<div class="snapshot-summary">
+    <div><span>Version</span><strong>{{ snapshot.version }}</strong></div>
+    <div><span>Registered</span><strong>{{ snapshot.published_at|displaytime }}</strong></div>
+    {% if kind.value == "external" %}
+        <div><span>Interface</span><strong>{{ snapshot.value.interface|upper }}</strong></div>
+        <div><span>Contents</span><strong>Metadata only</strong></div>
+    {% else %}
+        <div><span>Files</span><strong>{{ snapshot.files|length }}</strong></div>
+        <div><span>Total size</span><strong>{{ snapshot.total_size_bytes|filesize }}</strong></div>
+    {% endif %}
+</div>
+
+{% include "partials/lineage_tree.html" %}
+
+{% if kind.value != "external" %}
+<section class="detail-section" aria-labelledby="files-title">
+    <h2 id="files-title">Files</h2>
+    <div class="source-table-wrap">
+        <table class="source-table file-table">
+            <thead><tr><th>File</th><th>Size</th><th>SHA-256</th></tr></thead>
+            <tbody>{% for file in snapshot.files %}<tr><td><span class="mobile-label">File</span><strong>{{ file.relative_path|breakfilename }}</strong><small><code>{{ file.storage_uri }}</code></small>{% if file.source_url %}{% set file_url = file.source_url|safeurl %}<small>Upstream: {% if file_url %}<a href="{{ file_url }}" rel="noreferrer"><code>{{ file.source_url }}</code></a>{% else %}<code>{{ file.source_url }}</code>{% endif %}</small>{% endif %}</td><td><span class="mobile-label">Size</span>{{ file.size_bytes|filesize }}</td><td><span class="mobile-label">SHA-256</span><code class="checksum">{{ file.sha256 }}</code></td></tr>{% endfor %}</tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+
+{% if kind.value == "source" %}
+<section class="detail-section provenance-section" aria-labelledby="provenance-title">
+    <h2 id="provenance-title">Source provenance</h2>
+    <div class="fact-grid">
+        <div><span>Captured</span><strong>{{ snapshot.downloaded_at|displaytime }}</strong></div>
+        <div><span>Capture method</span><strong>{{ snapshot.metadata.get("capture_method", "download")|replace('_', ' ')|title }}</strong></div>
+    </div>
+    {% if snapshot.homepage %}{% set homepage_url = snapshot.homepage|safeurl %}<div class="provenance-homepage"><strong>Source website</strong>{% if homepage_url %}<a href="{{ homepage_url }}" rel="noreferrer">{{ snapshot.homepage }}</a>{% else %}<code>{{ snapshot.homepage }}</code>{% endif %}</div>{% endif %}
+    <div class="evidence-grid">
+        {% if snapshot.version.evidence %}<details open><summary>Version evidence</summary><pre>{{ snapshot.version.evidence|jsonpretty }}</pre></details>{% endif %}
+        {% if snapshot.metadata.get("validation") %}<details open><summary>Validation</summary><pre>{{ snapshot.metadata.get("validation")|jsonpretty }}</pre></details>{% endif %}
+        {% if snapshot.metadata %}<details><summary>Additional metadata</summary><pre>{{ snapshot.metadata|jsonpretty }}</pre></details>{% endif %}
+    </div>
+</section>
+{% elif kind.value == "derived" %}
+<section class="detail-section provenance-section" aria-labelledby="built-from-title">
+    <h2 id="built-from-title">Built from</h2>
+    {% if lineage %}<p class="lineage-summary">{{ lineage.dependencies|length }} input{% if lineage.dependencies|length != 1 %}s{% endif %} · {{ lineage.latest_count }} latest registered{% if lineage.older_count %} · {{ lineage.older_count }} older{% endif %}{% if lineage.missing_count %} · {{ lineage.missing_count }} missing{% endif %}{% if lineage.unavailable_count %} · {{ lineage.unavailable_count }} status unavailable{% endif %}</p>{% endif %}
+    <p class="lineage-note">Freshness is compared with versions registered in this catalog; it does not necessarily reflect the latest upstream release.</p>
+    <ul class="lineage-list">
+    {% if lineage %}{% for dependency in lineage.dependencies %}
+        <li>
+            <span class="kind-badge kind-{{ dependency.kind.value }}">{{ dependency.kind.value|title }}</span>
+            <span class="lineage-identity"><strong>{{ dependency.reference.ref.dataset.source|sourcename }}</strong><span>{{ dependency.reference.ref.dataset.dataset|datasetname }}</span><code>{{ dependency.reference.snapshot_id }}</code></span>
+            <span class="lineage-state">
+            {% if dependency.freshness.value == "latest_registered" %}<span class="freshness latest">Latest registered</span>
+            {% elif dependency.freshness.value == "older_version" %}<span class="freshness older">Older version</span><span>Latest registered: <code>{{ dependency.latest_version }}</code> (not used by this build)</span>
+            {% elif dependency.freshness.value == "missing" %}<span class="freshness missing">Missing from Registry</span>
+            {% else %}<span class="freshness unavailable">Status unavailable</span>{% endif %}
+            {% if dependency.metadata_only %}<span class="metadata-only-label">Metadata only</span>{% endif %}
+            </span>
+            {% if dependency.freshness.value in ("latest_registered", "older_version") %}<a class="lineage-link" href="/datasets/{{ dependency.kind.value }}/{{ dependency.reference.ref.dataset.source }}/{{ dependency.reference.ref.dataset.dataset }}/{{ dependency.pinned_version }}">View pinned input</a>{% endif %}
+        </li>
+    {% endfor %}{% else %}<li><span class="freshness unavailable">Dependency status unavailable</span></li>{% endif %}
+    </ul>
+    {% if snapshot.producer %}
+    <div class="fact-grid">
+        <div><span>Producer</span><strong>{{ snapshot.producer.name }} {{ snapshot.producer.release }}</strong></div>
+        <div><span>Code revision</span><strong><code>{{ snapshot.producer.code_revision }}</code></strong></div>
+    </div>
+    {% set repository_url = snapshot.producer.code_repository|safeurl %}<div class="provenance-homepage"><strong>Repository</strong>{% if repository_url %}<a href="{{ repository_url }}" rel="noreferrer">{{ snapshot.producer.code_repository }}</a>{% else %}<code>{{ snapshot.producer.code_repository }}</code>{% endif %}</div>
+    {% endif %}
+    <div class="evidence-grid">
+        <details open><summary>Transformation</summary><pre>{{ snapshot.transform|jsonpretty }}</pre></details>
+        <details open><summary>Validation</summary><pre>{{ snapshot.validation|jsonpretty }}</pre></details>
+    </div>
+    {% set service_observations = snapshot.metadata.get("service_observations") %}
+    {% if service_observations is sequence and service_observations is not string %}
+    <section class="service-observation-details" aria-labelledby="service-observations-title">
+        <h3 id="service-observations-title">Services queried during build</h3>
+        {% for observation in service_observations if observation is mapping %}
+        <article>
+            <div class="service-observation-heading"><span>Service observation</span><strong>{{ observation.get("service_name", observation.get("service_id", "External service")) }}</strong><small>Queried during build</small></div>
+            <dl class="service-observation-facts">
+                <div><dt>Operation</dt><dd>{{ observation.get("operation", "") }}</dd></div>
+                <div><dt>Observed</dt><dd><code>{{ observation.get("first_observed_at", "") }}</code><br>through <code>{{ observation.get("last_observed_at", "") }}</code></dd></div>
+                <div><dt>Requests</dt><dd>{{ observation.get("request_count", 0) }}</dd></div>
+                <div><dt>Retries</dt><dd>{{ observation.get("retry_count", 0) }}</dd></div>
+                <div><dt>Worst throttle</dt><dd>{{ observation.get("worst_throttle", "unknown")|title }}</dd></div>
+                <div><dt>HTTP statuses</dt><dd><code>{{ observation.get("http_status_counts", {})|jsonpretty }}</code></dd></div>
+            </dl>
+            <div class="service-observation-evidence"><strong>Endpoint template</strong><code>{{ observation.get("endpoint_template", "") }}</code><strong>Stored-response digest</strong><code>{{ observation.get("response_payload_sha256", "") }}</code></div>
+        </article>
+        {% endfor %}
+    </section>
+    {% endif %}
+</section>
+{% else %}
+<section class="external-notice" role="note"><strong>Metadata only.</strong> The Registry records this version but does not store its data or credentials.</section>
+<section class="detail-section provenance-section" aria-labelledby="external-details-title">
+    <h2 id="external-details-title">External version details</h2>
+    <div class="fact-grid">
+        <div><span>Service</span><strong>{{ snapshot.value.service_name }}</strong></div>
+        <div><span>Interface</span><strong>{{ snapshot.value.interface|upper }}</strong></div>
+        <div><span>Access mode</span><strong>{{ snapshot.value.access_mode|title }}</strong></div>
+        <div><span>Observed</span><strong>{{ snapshot.value.observed_at|displaytime }}</strong></div>
+    </div>
+    {% if snapshot.value.documentation_url %}{% set documentation_url = snapshot.value.documentation_url|safeurl %}<div class="provenance-homepage"><strong>Documentation</strong>{% if documentation_url %}<a href="{{ documentation_url }}" rel="noreferrer">{{ snapshot.value.documentation_url }}</a>{% else %}<code>{{ snapshot.value.documentation_url }}</code>{% endif %}</div>{% endif %}
+    <div class="evidence-grid">
+        {% if snapshot.value.version_check %}<details open><summary>Version check</summary><pre>{{ snapshot.value.version_check|jsonpretty }}</pre></details>{% endif %}
+        {% if snapshot.value.version_evidence %}<details open><summary>Version evidence</summary><pre>{{ snapshot.value.version_evidence|jsonpretty }}</pre></details>{% endif %}
+    </div>
+</section>
+{% endif %}
+<section class="manifest-location"><span>Manifest</span><code>{{ snapshot.manifest_uri }}</code></section>
+{% endblock %}

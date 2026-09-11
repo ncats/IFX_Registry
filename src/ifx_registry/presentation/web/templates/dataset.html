@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ item.dataset }} · IFX Data Registry{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Datasets</a><span>/</span><span>{{ item.dataset }}</span></nav>
+<header class="page-heading dataset-heading">
+    <span class="kind-badge kind-{{ item.kind.value }}">{{ item.kind.value|title }}</span>
+    <h1>{{ item.dataset.source|sourcename }}</h1>
+    <p><span class="dataset-name">{{ item.dataset.dataset|datasetname }}</span><code>{{ item.dataset }}</code></p>
+</header>
+
+{% if item.kind.value == "source" %}
+<div class="dataset-context-grid">
+    <section class="source-detail-card" aria-labelledby="about-source-title">
+        <h2 id="about-source-title">About this dataset</h2>
+        {% if overview %}
+            <p>{{ overview.descriptor.description }}</p>
+            {% if overview.descriptor.homepage %}{% set homepage_url = overview.descriptor.homepage|safeurl %}{% if homepage_url %}<a class="source-homepage" href="{{ homepage_url }}" rel="noreferrer">Source website</a>{% endif %}{% endif %}
+            {% if overview.descriptor.upstream_urls %}<details><summary>Data endpoints ({{ overview.descriptor.upstream_urls|length }})</summary><ul class="endpoint-list">{% for url in overview.descriptor.upstream_urls %}{% set endpoint_url = url|safeurl %}<li>{% if endpoint_url %}<a href="{{ endpoint_url }}" rel="noreferrer"><code>{{ url }}</code></a>{% else %}<code>{{ url }}</code>{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+            <h3>How version checking works</h3>
+            <p>{{ overview.descriptor.version_check_description }}</p>
+        {% else %}
+            <p>This source was captured and registered by a caller. Its exact provenance is recorded with each version.</p>
+            {% if item.latest.homepage %}{% set homepage_url = item.latest.homepage|safeurl %}{% if homepage_url %}<a class="source-homepage" href="{{ homepage_url }}" rel="noreferrer">Source website</a>{% else %}<code>{{ item.latest.homepage }}</code>{% endif %}{% endif %}
+            {% if item.latest.upstream_urls %}<details><summary>Recorded upstream endpoints ({{ item.latest.upstream_urls|length }})</summary><ul class="endpoint-list">{% for url in item.latest.upstream_urls %}{% set endpoint_url = url|safeurl %}<li>{% if endpoint_url %}<a href="{{ endpoint_url }}" rel="noreferrer"><code>{{ url }}</code></a>{% else %}<code>{{ url }}</code>{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+        {% endif %}
+    </section>
+    {% if overview %}
+        {% with latest_registered_version=item.latest.version, checked_version=none, assessment=none, check_error=none, registry_error=none %}{% include "partials/dataset_update.html" %}{% endwith %}
+    {% else %}
+        <section class="source-detail-card"><span class="eyebrow">Status</span><h2>Read-only source</h2>{% if item.latest.metadata.get("capture_method") %}<p>{{ item.latest.metadata.get("capture_method")|replace('_', ' ')|title }}. New versions are published through the Registry package.</p>{% else %}<p>Automatic version checks and registration are not available for this dataset in this deployment.</p>{% endif %}</section>
+    {% endif %}
+</div>
+{% elif item.kind.value == "derived" %}
+<section class="source-detail-card dataset-intro"><span class="eyebrow">Registered output</span><h2>Derived dataset</h2><p>Produced from exact registered inputs. Open a version to inspect its files, producer, transformation, and validation.</p></section>
+{% else %}
+<section class="source-detail-card dataset-intro"><span class="eyebrow">Metadata only</span><h2>External dataset</h2><p>The Registry records these exact versions but does not store their data or credentials.</p></section>
+{% endif %}
+
+<div id="dataset-job-list" class="job-list dataset-job-list" aria-live="polite">
+    {% if overview and (overview.active_job or (overview.latest_job and overview.latest_job.status.value == "failed")) %}
+        {% with job=overview.active_job or overview.latest_job %}{% include "partials/job_card.html" %}{% endwith %}
+    {% endif %}
+</div>
+
+{% include "partials/lineage_tree.html" %}
+
+{% if build_options %}
+{% include "partials/derived_build_control.html" %}
+{% elif build_options_error %}
+<section class="source-detail-card derived-build-card"><span class="eyebrow">Build unavailable</span><h2>Registered data remains available</h2><p class="inline-message error">{{ build_options_error }}</p></section>
+{% endif %}
+
+<section aria-labelledby="versions-title">
+    <div class="section-heading"><h2 id="versions-title">Registered versions</h2></div>
+    <div class="source-table-wrap">
+        <table class="source-table catalog-table version-table">
+            <thead><tr><th>Version</th><th>Registered</th><th>Contents</th><th></th></tr></thead>
+            <tbody>{% for snapshot in item.versions %}<tr><td><span class="mobile-label">Version</span><strong>{{ snapshot.version }}</strong><span class="source-id">{{ snapshot.snapshot_id }}</span></td><td><span class="mobile-label">Registered</span>{{ snapshot.published_at|displaytime }}</td><td><span class="mobile-label">Contents</span>{% if item.kind.value == "external" %}Metadata only{% else %}{{ snapshot.files|length }} file{% if snapshot.files|length != 1 %}s{% endif %} · {{ snapshot.total_size_bytes|filesize }}{% endif %}</td><td><a class="button secondary" href="/datasets/{{ item.kind.value }}/{{ snapshot.dataset.source }}/{{ snapshot.dataset.dataset }}/{{ snapshot.version }}">View details</a></td></tr>{% endfor %}</tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

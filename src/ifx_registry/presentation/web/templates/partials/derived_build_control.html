@@ -1,0 +1,37 @@
+{% if build_options.active_job %}
+    {% with job=build_options.active_job, job_dom_id="derived-build-control" %}{% include "partials/derived_build_job.html" %}{% endwith %}
+{% else %}
+<section class="source-detail-card derived-build-card" id="derived-build-control" aria-labelledby="derived-build-title" aria-live="polite">
+    <span class="eyebrow">Registry-managed recipe</span>
+    <h2 id="derived-build-title">Build and register a new version</h2>
+    <p>{{ build_options.recipe.description }}</p>
+    <p class="recipe-revision">Recipe revision <code>{{ build_options.recipe.revision }}</code></p>
+    {% if form_error %}<div class="inline-message error" role="alert">{{ form_error }}</div>{% endif %}
+    {% if build_options.failed_job %}
+        <details class="failed-build-details" open>
+            <summary>Previous build failed</summary>
+            {% with job=build_options.failed_job %}{% include "partials/derived_build_job.html" %}{% endwith %}
+        </details>
+    {% endif %}
+    <form class="derived-build-form js-async-form" method="post" action="/datasets/derived/{{ build_options.recipe.dataset.source }}/{{ build_options.recipe.dataset.dataset }}/builds" data-target="#derived-build-control" data-working-label="Starting build…" data-build-preview-url="/datasets/derived/{{ build_options.recipe.dataset.source }}/{{ build_options.recipe.dataset.dataset }}/build-preview">
+        <fieldset{% if not build_options.can_build %} disabled{% endif %}>
+            <legend>Exact registered inputs</legend>
+            {% for input_options in build_options.inputs %}
+            <label>
+                <span>{{ input_options.slot.label }}</span>
+                <small><code>{{ input_options.slot.dataset }}</code></small>
+                {% set selected_version = submitted.get(input_options.slot.name) if submitted else build_options.default_inputs.get(input_options.slot.name) %}
+                <select name="input.{{ input_options.slot.name }}" required>
+                    {% for version in input_options.versions %}<option value="{{ version.version }}"{% if version.version.value == selected_version %} selected{% endif %}>{{ version.version }}{% if loop.first %} — latest registered{% endif %} · {{ version.published_at|displaytime }}</option>{% else %}<option value="">No registered versions available</option>{% endfor %}
+                </select>
+            </label>
+            {% endfor %}
+        </fieldset>
+        {% if build_options.can_build %}
+            {% set preview_version = calculated_output_version if calculated_output_version is defined and calculated_output_version else build_options.default_output_version %}
+            {% set identity_error = "Select valid exact inputs to calculate the Registry version." if submitted and calculated_output_version is defined and not calculated_output_version else none %}
+            {% with output_version=preview_version, registered_output_versions=build_options.registered_output_versions, preview_error=identity_error %}{% include "partials/derived_build_preview.html" %}{% endwith %}
+        {% else %}<p class="inline-message error">Every declared input needs at least one registered version before this recipe can run.</p>{% endif %}
+    </form>
+</section>
+{% endif %}

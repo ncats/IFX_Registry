@@ -1,0 +1,76 @@
+<section class="update-card" id="dataset-update" aria-labelledby="update-registry-title" aria-live="polite">
+    <div class="update-card-heading">
+        <div>
+            <span class="eyebrow">Latest registered</span>
+            <strong>{% if registry_error %}Unavailable{% else %}{{ latest_registered_version or "Not yet registered" }}{% endif %}</strong>
+        </div>
+        {% if overview and overview.active_job %}<span class="status working">Acquiring</span>{% endif %}
+    </div>
+    <h2 id="update-registry-title">Update Registry</h2>
+
+    {% if overview and not overview.operational_state_available %}
+        <p>Update status is temporarily unavailable. Registered versions remain available to use.</p>
+    {% elif not overview %}
+        <p>Automatic version checks and registration are not available for this dataset.</p>
+    {% elif overview.active_job %}
+        <p><strong>{{ overview.active_job.message }}</strong></p>
+        <p>A second download is blocked until this job finishes.</p>
+        <button class="button primary" type="button" disabled>Download in progress</button>
+    {% elif check_error %}
+        <div class="inline-message error"><strong>Couldn’t check upstream</strong><span>{{ check_error }}</span></div>
+        <form class="js-async-form update-action" method="post"
+              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
+              data-target="#dataset-update" data-mode="replace"
+              data-working-label="Checking upstream…" data-focus-result>
+            <button class="button secondary" type="submit">Try again</button>
+        </form>
+    {% elif registry_error %}
+        <div class="inline-message error"><strong>Registry unavailable</strong><span>{{ registry_error }}</span></div>
+        <p>Upstream reported version <strong>{{ checked_version }}</strong>, but registration is disabled until the Registry can confirm authoritative state.</p>
+        <form class="js-async-form update-action" method="post"
+              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
+              data-target="#dataset-update" data-mode="replace"
+              data-working-label="Checking upstream…" data-focus-result>
+            <button class="button secondary" type="submit">Check again</button>
+        </form>
+    {% elif assessment %}
+        <div class="version-check-result">
+            {% if assessment.state.value == "up_to_date" %}
+                <span class="status success">Up to date</span>
+                <p>Upstream and the Registry both report <strong>{{ assessment.checked_version }}</strong>.</p>
+            {% elif assessment.state.value == "already_registered" %}
+                <span class="status success">Already registered</span>
+                <p>Upstream reports <strong>{{ assessment.checked_version }}</strong>, which is already in the Registry. The most recently registered version is <strong>{{ assessment.latest_registered_version }}</strong>.</p>
+            {% else %}
+                <span class="status working">Unregistered version available</span>
+                <p>Upstream reports <strong>{{ assessment.checked_version }}</strong>{% if assessment.latest_registered_version %}; the latest registered version is <strong>{{ assessment.latest_registered_version }}</strong>{% endif %}.</p>
+            {% endif %}
+            <small>Checked {{ assessment.checked_version.discovered_at|displaytime }}{% if assessment.checked_version.version_date %} · Release date {{ assessment.checked_version.version_date }}{% endif %}</small>
+        </div>
+        <div class="update-actions">
+            <form class="js-async-form" method="post"
+                  action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
+                  data-target="#dataset-update" data-mode="replace"
+                  data-working-label="Checking upstream…" data-focus-result>
+                <button class="button secondary" type="submit">Check again</button>
+            </form>
+            {% if assessment.can_register %}
+                <form class="js-async-form" method="post"
+                      action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/acquisitions"
+                      data-target="#dataset-job-list" data-mode="prepend"
+                      data-working-label="Starting registration…">
+                    <input type="hidden" name="expected_version" value="{{ assessment.checked_version.value }}">
+                    <button class="button primary" type="submit">Download &amp; register {{ assessment.checked_version }}</button>
+                </form>
+            {% endif %}
+        </div>
+    {% else %}
+        <p>Check the upstream source to compare its current release with the latest registered version.</p>
+        <form class="js-async-form update-action" method="post"
+              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
+              data-target="#dataset-update" data-mode="replace"
+              data-working-label="Checking upstream…" data-focus-result>
+            <button class="button primary" type="submit">Check for updates</button>
+        </form>
+    {% endif %}
+</section>

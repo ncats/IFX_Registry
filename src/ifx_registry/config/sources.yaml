@@ -1,0 +1,223 @@
+schema_version: 1
+
+sources:
+  - adapter: reactome_pathways
+    enabled: true
+    display_name: Reactome Pathways
+    description: >-
+      Pathway definitions, hierarchy, UniProt and ChEBI mappings, and human
+      molecular interactions.
+
+  - adapter: uniprot_human
+    enabled: true
+    display_name: UniProt Human Proteome
+    description: >-
+      Complete and reviewed human protein records with a consistency check
+      between both files.
+
+  - adapter: cure_case_reports
+    enabled: false
+    display_name: CURE ID Case Reports
+    description: >-
+      A complete timestamped export of case reports from the CURE ID API;
+      disabled until NCATS provides the required external API agreement and credentials.
+
+  - adapter: glygen_proteins
+    enabled: true
+    display_name: GlyGen Human Proteins
+    description: Human protein records used for GlyGen links in Pharos.
+
+  - adapter: dark_kinome_kinases
+    enabled: true
+    display_name: Dark Kinome
+    description: Kinase records and links extracted from the Dark Kinome data catalog.
+
+  - adapter: resolute_genes
+    enabled: true
+    display_name: RESOLUTE SLC Genes
+    description: Solute carrier genes and protein identifiers from the RESOLUTE knowledgebase.
+
+  - adapter: linkedomics_genes
+    enabled: true
+    display_name: LinkedOmicsKB Genes
+    description: Gene records used for links to the LinkedOmics KnowledgeBase.
+
+  - adapter: hcop_human_all_sixteen_column
+    enabled: true
+    display_name: HGNC HCOP
+    description: Human orthology predictions from the HGNC Comparison of Orthology Predictions.
+
+  - adapter: mgi_hmd_human_phenotype
+    enabled: true
+    display_name: MGI Human–Mouse Disease Connection
+    description: Human and mouse gene-to-phenotype relationships from MGI.
+
+  - adapter: impc_genotype_phenotype_assertions
+    enabled: true
+    display_name: IMPC Genotype–Phenotype Assertions
+    description: Genotype and phenotype assertions from the International Mouse Phenotyping Consortium.
+
+  - adapter: pubtator_gene2pubtator3
+    enabled: true
+    display_name: PubTator 3 Gene Annotations
+    description: Gene-to-publication annotations produced by PubTator 3.
+
+  - adapter: ncbi_publications
+    enabled: true
+    display_name: NCBI Gene Publications
+    description: Gene-to-PubMed links and GeneRIF publication annotations.
+
+  - adapter: ncbi_gene_summary
+    enabled: true
+    display_name: NCBI Gene Summaries
+    description: Descriptions and summary text for NCBI Gene records.
+
+  - adapter: jensenlab_tissues
+    enabled: true
+    display_name: JensenLab Tissue Associations
+    description: Integrated human protein–tissue associations from JensenLab.
+
+  - adapter: jensenlab_diseases
+    enabled: true
+    display_name: JensenLab Disease Associations
+    description: Human disease associations from knowledge, experiments, and text mining.
+
+  - adapter: jensenlab_protein_counts
+    enabled: true
+    display_name: JensenLab Protein Counts
+    description: Protein mention counts used with JensenLab text-mining data.
+
+  - adapter: jensenlab_tinx
+    enabled: true
+    display_name: TIN-X Text-Mining Evidence
+    description: Human protein and disease mention evidence used to calculate TIN-X novelty.
+
+  - adapter: expasy_enzyme
+    enabled: true
+    display_name: ExPASy ENZYME
+    description: Enzyme nomenclature classes and detailed enzyme records.
+
+  - adapter: iuphar_ligands_interactions
+    enabled: true
+    display_name: IUPHAR/BPS Guide to PHARMACOLOGY
+    description: Ligands and their curated target interactions.
+
+  - adapter: uberon_ontology
+    enabled: true
+    display_name: Uberon
+    description: Cross-species anatomy ontology.
+
+  - adapter: go_ontology
+    enabled: true
+    display_name: Gene Ontology
+    description: Core Gene Ontology terms and relationships.
+
+  - adapter: go_goa_human_go
+    enabled: true
+    display_name: GO Human Annotations
+    description: Human gene-product annotations distributed by the Gene Ontology project.
+
+  - adapter: go_goa_human_uniprot
+    enabled: true
+    display_name: UniProt-GOA Human Annotations
+    description: Human Gene Ontology annotations distributed by UniProt-GOA.
+
+  - adapter: mondo_ontology
+    enabled: true
+    display_name: Mondo Disease Ontology
+    description: Harmonized disease concepts and relationships from Mondo.
+
+  - adapter: chebi_three_star_sdf
+    enabled: true
+    display_name: ChEBI Three-Star Structures
+    description: Manually curated three-star chemical structures from ChEBI.
+
+  - adapter: chebi_full_ontology
+    enabled: true
+    display_name: ChEBI Full Ontology
+    description: Chemical entities, definitions, synonyms, and ontology relationships from ChEBI.
+
+  - adapter: bioplex_ppi
+    enabled: true
+    display_name: BioPlex
+    description: Human protein interaction networks from BioPlex 293T and HCT116 cells.
+
+  - adapter: string_protein_links_human
+    enabled: true
+    display_name: STRING Human Protein Links
+    description: Scored human protein associations from STRING.
+
+  - adapter: panther_protein_classes
+    enabled: true
+    display_name: PANTHER Protein Classes
+    description: Human protein classifications and class relationships from PANTHER.
+
+  - adapter: pathwaycommons_pc_hgnc
+    enabled: true
+    display_name: Pathway Commons
+    description: HGNC-based pathway sets integrated by Pathway Commons.
+
+  - adapter: rhea_reaction_bundle
+    enabled: true
+    display_name: Rhea Reactions
+    description: Biochemical reactions and UniProt and EC mappings from Rhea.
+
+  - adapter: wikipathways_human_gmt
+    enabled: true
+    display_name: WikiPathways Human Pathways
+    description: Human pathway gene sets in GMT format from WikiPathways.
+
+  - adapter: wikipathways_rdf_wp
+    enabled: true
+    display_name: WikiPathways RDF
+    description: WikiPathways pathway content and mappings in RDF form.
+
+  - adapter: pfocr_human_pathways
+    enabled: true
+    display_name: PFOCR Human Pathways
+    description: Human gene and chemical pathway sets extracted from pathway figures.
+
+  - adapter: gtex_expression_v11
+    enabled: true
+    display_name: GTEx Tissue Expression
+    description: GTEx v11 human gene expression and sample metadata.
+
+  - adapter: hpa_tissue_expression
+    enabled: true
+    display_name: Human Protein Atlas Tissue Expression
+    description: Human protein and RNA tissue expression measurements.
+
+  - adapter: tiga_gene_trait
+    enabled: true
+    display_name: TIGA Gene–Trait Associations
+    description: Integrated gene–trait association statistics and provenance from TIGA.
+
+  - adapter: surechembl_patent_discovery
+    enabled: true
+    display_name: SureChEMBL Patent Discovery
+    description: Patent, biomedical entity, location, type, and field data from SureChEMBL.
+
+  - adapter: ctd_curated_genes_diseases
+    enabled: true
+    display_name: CTD Curated Gene–Disease Associations
+    description: Curated gene and disease relationships from the Comparative Toxicogenomics Database.
+
+  - adapter: mp_ontology
+    enabled: true
+    display_name: Mammalian Phenotype Ontology
+    description: Standard mammalian phenotype terms and relationships.
+
+  - adapter: disease_ontology
+    enabled: true
+    display_name: Disease Ontology
+    description: Human disease terms, definitions, synonyms, and relationships.
+
+  - adapter: refmet_metabolites_csv
+    enabled: true
+    display_name: RefMet
+    description: Standardized metabolite names from Metabolomics Workbench.
+
+  - adapter: lipidmaps_lmsd_sdf
+    enabled: true
+    display_name: LIPID MAPS Structure Database
+    description: Curated lipid structures from the LIPID MAPS Structure Database.

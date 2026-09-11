@@ -1,0 +1,15 @@
+<div id="derived-build-preview" class="derived-build-preview" aria-live="polite">
+    {% if preview_error %}
+        <p class="inline-message error" role="alert">Could not calculate the Registry version: {{ preview_error }}</p>
+    {% else %}
+        <span>Proposed Registry version</span>
+        <strong><code>{{ output_version }}</code></strong>
+        <small>Will be registered as <code>{{ build_options.recipe.dataset }}:{{ output_version }}</code>. Calculated from the exact inputs and recipe revision.</small>
+        {% if output_version in registered_output_versions %}
+            <p class="field-warning">This exact build is already registered.</p>
+            <a class="button secondary" href="/datasets/derived/{{ build_options.recipe.dataset.source }}/{{ build_options.recipe.dataset.dataset }}/{{ output_version }}">View registered version</a>
+        {% else %}
+            <button class="button primary" type="submit">Build &amp; register</button>
+        {% endif %}
+    {% endif %}
+</div>

@@ -1,0 +1,79 @@
+<section class="detail-section lineage-tree-section" aria-labelledby="lineage-tree-title">
+    <div class="section-heading lineage-tree-heading">
+        <div>
+            <h2 id="lineage-tree-title">Dependency tree</h2>
+            <p>Exact registered versions, from root inputs through every connected derived output.</p>
+        </div>
+        <span class="lineage-tree-count">{{ lineage_tree.nodes|length }} version{% if lineage_tree.nodes|length != 1 %}s{% endif %}</span>
+    </div>
+    <p class="lineage-note">Lines connect each exact input version to the exact output built from it. Version status is compared with snapshots registered in this Registry.</p>
+    {% if item.kind.value == "derived" and item.rebuild_status.value == "stale" %}<p class="lineage-rebuild-notice"><strong>Rebuild recommended.</strong> A newer registered version exists somewhere in the latest build’s dependency tree.</p>{% endif %}
+    {% if item.kind.value == "derived" and item.rebuild_status.value == "broken" %}<p class="lineage-warning"><strong>Dependency missing.</strong> An exact input in the latest build’s dependency tree is not available in this Registry.</p>{% endif %}
+    {% if lineage_tree.has_cycle %}<p class="lineage-warning" role="status">This lineage contains a cycle. All connected versions are shown, but stage ordering is approximate.</p>{% endif %}
+    {% if lineage_tree.levels|length > 3 %}<p class="lineage-scroll-hint">Scroll horizontally to see later derived stages.</p>{% endif %}
+    <div class="lineage-map-viewport" data-lineage-viewport>
+    <div class="lineage-tree lineage-map" aria-label="Complete dependency tree" data-lineage-map>
+        <svg class="lineage-connectors" aria-hidden="true" data-lineage-connectors></svg>
+        {% for level in lineage_tree.grouped_levels %}
+        <section class="lineage-stage" aria-labelledby="lineage-stage-{{ loop.index }}">
+            <h3 id="lineage-stage-{{ loop.index }}">{% if loop.first and lineage_tree.has_cycle %}Cycle or unresolved stage{% elif loop.first %}Root datasets{% else %}Derived stage {{ loop.index - 1 }}{% endif %}</h3>
+            <div class="lineage-stage-nodes">
+                {% for group in level %}
+                <article class="lineage-dataset-group">
+                    {% set group_is_current = lineage_page == "overview" and group.kind == item.kind and group.dataset == item.dataset %}
+                    <div class="lineage-group-heading">
+                        <span class="kind-badge kind-{{ group.kind.value }}">{{ group.kind.value|title }}</span>
+                        {% if group.overview_available %}
+                        <a class="lineage-dataset-link" href="/datasets/{{ group.kind.value }}/{{ group.dataset.source }}/{{ group.dataset.dataset }}" aria-label="View {{ group.dataset.source|sourcename }} {{ group.dataset.dataset|datasetname }} dataset"{% if group_is_current %} aria-current="page"{% endif %}><strong>{{ group.dataset.source|sourcename }}</strong><span>{{ group.dataset.dataset|datasetname }}</span></a>
+                        {% else %}<span class="lineage-dataset-link"><strong>{{ group.dataset.source|sourcename }}</strong><span>{{ group.dataset.dataset|datasetname }}</span></span>{% endif %}
+                        <code>{{ group.dataset }}</code>
+                    </div>
+                    <div class="lineage-version-rows">
+                    {% for node in group.nodes %}
+                        {% set is_focus = node.key == lineage_tree.focus %}
+                        <article class="lineage-version-row{% if is_focus %} is-current{% endif %}{% if node.is_missing %} is-missing{% endif %}"
+                                 data-lineage-node
+                                 data-lineage-key="{{ node.key.kind.value }}|{{ node.key.dataset.source }}|{{ node.key.dataset.dataset }}|{{ node.key.version }}"
+                                 data-lineage-dependencies="{% for dependency in node.dependencies %}{{ dependency.key.kind.value }}|{{ dependency.key.dataset.source }}|{{ dependency.key.dataset.dataset }}|{{ dependency.key.version }}{% if not loop.last %},{% endif %}{% endfor %}"
+                                 {% if is_focus %}data-lineage-current aria-current="true"{% endif %}>
+                            <div class="lineage-version-main">
+                                {% if node.is_missing %}<strong><code>{{ node.key.version }}</code></strong>{% else %}<a href="/datasets/{{ node.key.kind.value }}/{{ node.key.dataset.source }}/{{ node.key.dataset.dataset }}/{{ node.key.version }}" aria-label="View exact version {{ node.key.version }} of {{ node.key.dataset.source|sourcename }} {{ node.key.dataset.dataset|datasetname }}"{% if lineage_page == "version" and is_focus %} aria-current="page"{% endif %}><code>{{ node.key.version }}</code></a>{% endif %}
+                                {% if is_focus %}<span class="current-node-label">{% if lineage_page == "overview" %}Selected version{% else %}Current details{% endif %}</span>{% endif %}
+                            </div>
+                            <div class="lineage-version-meta">
+                                {% if node.is_missing %}<span class="freshness missing">Missing</span>
+                                {% elif node.freshness.value == "latest_registered" %}<span class="freshness latest">Latest</span>
+                                {% else %}<span class="freshness older">Older</span>{% if node.latest_version %}<span class="lineage-latest-version">latest: <code>{{ node.latest_version }}</code></span>{% endif %}{% endif %}
+                                {% if node.metadata_only %}<span class="metadata-only-label">Metadata only</span>{% endif %}
+                                <span class="lineage-edge-count">{{ node.dependencies|length }} input{% if node.dependencies|length != 1 %}s{% endif %} · {{ node.used_by|length }} output{% if node.used_by|length != 1 %}s{% endif %}</span>
+                            </div>
+                            {% if node.service_observations %}
+                            {% set observations = node.service_observations %}
+                            <div class="lineage-service-observations">
+                                {% if observations|length == 1 %}
+                                {% set observation = observations[0] %}
+                                <span>Service observation</span><strong>{{ observation.get("service_name", observation.get("service_id", "External service")) }}</strong><small>Queried during build · {{ observation.get("request_count", 0) }} request{% if observation.get("request_count", 0) != 1 %}s{% endif %} · {{ observation.get("first_observed_at", "")[:10] }}</small>
+                                {% else %}
+                                <details><summary>Services queried ({{ observations|length }})</summary><ul>{% for observation in observations %}<li><strong>{{ observation.get("service_name", observation.get("service_id", "External service")) }}</strong> · {{ observation.get("request_count", 0) }} requests</li>{% endfor %}</ul></details>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                            {% if node.dependencies or node.used_by %}
+                            <details class="lineage-mobile-links">
+                                <summary>Connections</summary>
+                                {% if node.dependencies %}<div><strong>Inputs</strong><ul>{% for dependency in node.dependencies %}<li>{% if dependency.exists %}<a href="/datasets/{{ dependency.key.kind.value }}/{{ dependency.key.dataset.source }}/{{ dependency.key.dataset.dataset }}/{{ dependency.key.version }}">{{ dependency.key.snapshot_id }}</a>{% else %}{{ dependency.key.snapshot_id }} <small>missing</small>{% endif %}</li>{% endfor %}</ul></div>{% endif %}
+                                {% if node.used_by %}<div><strong>Outputs</strong><ul>{% for dependent in node.used_by %}<li>{% if dependent.exists %}<a href="/datasets/{{ dependent.key.kind.value }}/{{ dependent.key.dataset.source }}/{{ dependent.key.dataset.dataset }}/{{ dependent.key.version }}">{{ dependent.key.snapshot_id }}</a>{% else %}{{ dependent.key.snapshot_id }} <small>missing</small>{% endif %}</li>{% endfor %}</ul></div>{% endif %}
+                            </details>
+                            {% endif %}
+                            <span class="visually-hidden">{% if node.dependencies %}Built from {% for dependency in node.dependencies %}{{ dependency.key.snapshot_id }}{% if not loop.last %}, {% endif %}{% endfor %}. {% endif %}{% if node.used_by %}Used by {% for dependent in node.used_by %}{{ dependent.key.snapshot_id }}{% if not loop.last %}, {% endif %}{% endfor %}.{% endif %}</span>
+                        </article>
+                    {% endfor %}
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+    </div>
+    </div>
+</section>

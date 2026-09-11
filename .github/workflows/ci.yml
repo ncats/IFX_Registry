@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[dev]"
+      - run: pytest
+      - run: ruff check .
+      - run: mypy src
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip wheel --no-deps --wheel-dir dist .
+      - run: python -m venv /tmp/ifx-registry-client-smoke
+      - run: /tmp/ifx-registry-client-smoke/bin/python -m pip install dist/*.whl
+      - name: Verify installed client and package contract
+        run: |
+          /tmp/ifx-registry-client-smoke/bin/python - <<'PY'
+          from importlib import resources
+          from importlib.metadata import distribution
+
+          from ifx_registry import PublishedFile, RegistryClient
+
+          package = resources.files("ifx_registry")
+          assert package.joinpath("py.typed").is_file()
+          assert package.joinpath("config", "sources.yaml").is_file()
+          assert package.joinpath(
+              "presentation", "web", "templates", "catalog.html"
+          ).is_file()
+
+          requirements = distribution("ifx-registry").requires or []
+          base = [requirement for requirement in requirements if "extra ==" not in requirement]
+          assert len(base) == 2
+          assert any(requirement.lower().startswith("boto3") for requirement in base)
+          assert any(requirement.lower().startswith("pyyaml") for requirement in base)
+          assert any(
+              "fastapi" in requirement.lower() and "server" in requirement.lower()
+              for requirement in requirements
+          )
+          assert RegistryClient is not None
+          assert PublishedFile is not None
+          PY

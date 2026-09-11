@@ -1,0 +1,69 @@
+<div class="catalog-update" id="catalog-update-{{ overview.descriptor.dataset.source }}-{{ overview.descriptor.dataset.dataset }}" aria-live="polite">
+    {% if not assessment and freshness %}{% set assessment = freshness.assessment %}{% endif %}
+    {% if not overview.operational_state_available %}
+        <span class="catalog-capability error" role="img" aria-label="Update status unavailable" title="Update status unavailable">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 8v5M12 17h.01"/><path d="M10.3 4.9 3.2 17.2A2 2 0 0 0 4.9 20h14.2a2 2 0 0 0 1.7-2.8L13.7 4.9a2 2 0 0 0-3.4 0Z"/></svg>
+        </span>
+        <span class="catalog-capability-text">Update status unavailable</span>
+    {% elif overview.active_job %}
+        {% if overview.active_job.status.value == "queued" %}
+            <span class="catalog-capability working" role="img" aria-label="Waiting to start" title="Waiting to start">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            </span>
+            <span class="catalog-capability-text">Waiting to start</span>
+        {% else %}
+            <span class="catalog-capability working progress" role="img" aria-label="Download and registration in progress" title="Download and registration in progress">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66"/></svg>
+            </span>
+            <span class="catalog-capability-text">In progress</span>
+        {% endif %}
+    {% elif freshness and freshness.state.value == "check_failed" %}
+        <form class="js-async-form" method="post"
+              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/catalog-check"
+              data-target="#catalog-update-{{ overview.descriptor.dataset.source }}-{{ overview.descriptor.dataset.dataset }}"
+              data-mode="replace" data-working-label="Checking…">
+            <button class="catalog-capability error" type="submit" aria-label="Recent update check failed; try again" title="Recent update check failed. Try again.">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 8v5M12 17h.01"/><path d="M10.3 4.9 3.2 17.2A2 2 0 0 0 4.9 20h14.2a2 2 0 0 0 1.7-2.8L13.7 4.9a2 2 0 0 0-3.4 0Z"/></svg>
+            </button>
+        </form>
+        <span class="catalog-capability-text">Check failed</span>
+    {% elif check_error or registry_error %}
+        <form class="js-async-form" method="post"
+              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/catalog-check"
+              data-target="#catalog-update-{{ overview.descriptor.dataset.source }}-{{ overview.descriptor.dataset.dataset }}"
+              data-mode="replace" data-working-label="Checking…">
+            <button class="catalog-capability error" type="submit" aria-label="Update check failed; try again" title="Update check failed. Try again.">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 8v5M12 17h.01"/><path d="M10.3 4.9 3.2 17.2A2 2 0 0 0 4.9 20h14.2a2 2 0 0 0 1.7-2.8L13.7 4.9a2 2 0 0 0-3.4 0Z"/></svg>
+            </button>
+        </form>
+        <span class="catalog-capability-text">Check failed</span>
+    {% elif assessment and assessment.can_register %}
+        <form class="js-async-form" method="post"
+              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/acquisitions"
+              data-target="#catalog-job-list" data-mode="prepend"
+              data-working-label="Starting…">
+            <input type="hidden" name="expected_version" value="{{ assessment.checked_version.value }}">
+            <button class="catalog-capability available" type="submit"
+                    aria-label="Download and register {{ assessment.checked_version }}"
+                    title="Download &amp; register {{ assessment.checked_version }}">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 20h14"/></svg>
+            </button>
+        </form>
+        <span class="catalog-capability-text">Register {{ assessment.checked_version }}</span>
+    {% elif assessment %}
+        <span class="catalog-capability success" role="img" aria-label="Up to date" title="Up to date{% if freshness %}. Upstream checked {{ freshness.latest_attempt.checked_at|displaytime }}; no new check is needed until {{ freshness.fresh_until|displaytime }}{% endif %}.">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
+        </span>
+        <span class="catalog-capability-text">Up to date</span>
+    {% else %}
+        <form class="js-async-form" method="post"
+              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/catalog-check"
+              data-target="#catalog-update-{{ overview.descriptor.dataset.source }}-{{ overview.descriptor.dataset.dataset }}"
+              data-mode="replace" data-working-label="Checking…">
+            <button class="catalog-capability available" type="submit" aria-label="Check for updates" title="Check for updates">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6.1 8.5A7 7 0 0 1 18.8 7M5.2 17A7 7 0 0 0 17.9 15.5"/></svg>
+            </button>
+        </form>
+        <span class="catalog-capability-text">Check for updates</span>
+    {% endif %}
+</div>

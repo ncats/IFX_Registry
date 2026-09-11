@@ -1,0 +1,34 @@
+<section class="detail-section" aria-labelledby="version-inputs-title">
+    <div class="section-heading">
+        <div>
+            <h2 id="version-inputs-title">Build inputs by version</h2>
+            <p>The exact registered versions used for each build.</p>
+        </div>
+    </div>
+    <div class="version-input-groups">
+        {% for snapshot in item.versions %}
+        {% set version_lineage = item.lineage_for(snapshot.snapshot_id) %}
+        <details class="version-input-group"{% if loop.first %} open{% endif %}>
+            <summary><span>Derived version</span><strong><code>{{ snapshot.version }}</code></strong><small>{{ version_lineage.dependencies|length if version_lineage else 0 }} input{% if not version_lineage or version_lineage.dependencies|length != 1 %}s{% endif %}</small></summary>
+            <div class="version-input-actions"><a href="/datasets/derived/{{ snapshot.dataset.source }}/{{ snapshot.dataset.dataset }}/{{ snapshot.version }}">View build details</a></div>
+            {% if version_lineage and version_lineage.dependencies %}
+            <div class="version-input-cards">
+                {% for dependency in version_lineage.dependencies %}
+                <div class="version-input-card">
+                    <span class="kind-badge kind-{{ dependency.kind.value }}">{{ dependency.kind.value|title }}</span>
+                    <strong>{{ dependency.reference.ref.dataset.source|sourcename }}</strong>
+                    <span>{{ dependency.reference.ref.dataset.dataset|datasetname }}</span>
+                    <code>{{ dependency.pinned_version }}</code>
+                    {% if dependency.freshness.value == "latest_registered" %}<span class="freshness latest">Latest registered</span>
+                    {% elif dependency.freshness.value == "older_version" %}<span class="freshness older">Older registered version</span>
+                    {% elif dependency.freshness.value == "missing" %}<span class="freshness missing">Missing from Registry</span>
+                    {% else %}<span class="freshness unavailable">Status unavailable</span>{% endif %}
+                    {% if dependency.freshness.value in ("latest_registered", "older_version") %}<a href="/datasets/{{ dependency.kind.value }}/{{ dependency.reference.ref.dataset.source }}/{{ dependency.reference.ref.dataset.dataset }}/{{ dependency.pinned_version }}">View exact input</a>{% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}<p>No registered inputs were recorded for this build.</p>{% endif %}
+        </details>
+        {% endfor %}
+    </div>
+</section>

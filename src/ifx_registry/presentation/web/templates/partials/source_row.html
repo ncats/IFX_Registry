@@ -1,0 +1,59 @@
+<tr class="source-row"
+    id="source-{{ overview.descriptor.dataset.source }}-{{ overview.descriptor.dataset.dataset }}"
+    data-source-row
+    data-search="{{ overview.descriptor.display_name }} {{ overview.descriptor.dataset }} {{ overview.descriptor.description }}">
+    <td class="source-identity">
+        <div class="source-name-line">
+            <strong>{{ overview.descriptor.display_name }}</strong>
+            {% if overview.active_job %}
+                <span class="status working">Acquiring</span>
+            {% endif %}
+        </div>
+        <span class="source-id">{{ overview.descriptor.dataset }}</span>
+        <p>{{ overview.descriptor.description }}</p>
+        {% if not overview.operational_state_available %}
+            <div class="inline-message error"><strong>Update tools unavailable</strong><span>The registered catalog remains available.</span></div>
+        {% elif check_error %}
+            <div class="inline-message error"><strong>Version check failed</strong><span>{{ check_error }}</span></div>
+        {% elif overview.active_job %}
+            <div class="inline-message working">
+                <strong>{{ overview.active_job.message }}</strong>
+                <span>A second download is blocked until this job finishes.</span>
+            </div>
+        {% endif %}
+    </td>
+    <td class="release-cell">
+        {% if checked_version %}
+            <strong>{{ checked_version }}</strong>
+            <small>{{ checked_version.version_date or "Date confirmed during acquisition" }}</small>
+        {% else %}
+            <span class="not-checked">Not checked</span>
+        {% endif %}
+    </td>
+    <td class="file-count">{{ overview.descriptor.expected_file_count }}</td>
+    <td class="source-row-actions">
+        {% if not overview.operational_state_available %}
+            <button class="button secondary" type="button" disabled>Unavailable</button>
+        {% else %}
+        <form class="js-async-form"
+              method="post"
+              action="/sources/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
+              data-target="#source-{{ overview.descriptor.dataset.source }}-{{ overview.descriptor.dataset.dataset }}"
+              data-mode="replace">
+            <button class="button secondary" type="submit">Check version</button>
+        </form>
+        {% if checked_version and not overview.active_job %}
+            <form class="js-async-form"
+                  method="post"
+                  action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/acquisitions"
+                  data-target="#catalog-job-list"
+                  data-mode="prepend">
+                <input type="hidden" name="expected_version" value="{{ checked_version.value }}">
+                <button class="button primary" type="submit">Download &amp; register</button>
+            </form>
+        {% elif overview.active_job %}
+            <button class="button primary" type="button" disabled>Download in progress</button>
+        {% endif %}
+        {% endif %}
+    </td>
+</tr>

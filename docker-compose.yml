@@ -1,0 +1,30 @@
+
+services:
+  registry:
+    build:
+      context: .
+    image: ifx-registry:local
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${IFX_REGISTRY_WEB_PORT:-8000}:8000"
+    environment:
+      - IFX_REGISTRY_STATE_DIR=/var/lib/ifx-registry
+      - IFX_REGISTRY_BUCKET=${IFX_REGISTRY_BUCKET:-aws-ifx-registry}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - IFX_REGISTRY_AWS_ROLE_ARN
+      - IFX_REGISTRY_AWS_EXTERNAL_ID
+      - IFX_REGISTRY_VERSION_CHECK_TTL_SECONDS=${IFX_REGISTRY_VERSION_CHECK_TTL_SECONDS:-604800}
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+      - IFX_REGISTRY_AWS_CREDENTIALS=/run/secrets/aws_ifx_registry.yaml
+    volumes:
+      - registry-state:/var/lib/ifx-registry
+      - ./secrets/aws_ifx_registry.yaml:/run/secrets/aws_ifx_registry.yaml:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  registry-state:

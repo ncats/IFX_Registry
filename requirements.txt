@@ -1,0 +1,2 @@
+# Install IFX Registry in editable mode with its development toolchain.
+-e .[dev]
