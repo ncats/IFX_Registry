@@ -5,6 +5,7 @@ import sys
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from zoneinfo import ZoneInfo
 
 import anyio
 import httpx
@@ -181,6 +182,19 @@ def test_web_entrypoint_preserves_version_check_ttl(
     settings = captured["settings"]
     assert isinstance(settings, WebSettings)
     assert settings.version_check_ttl_seconds == 12345
+
+
+def test_display_time_uses_configured_timezone() -> None:
+    timestamp = datetime(2026, 7, 1, 18, tzinfo=UTC)
+
+    assert web_app_module._format_datetime(
+        timestamp, ZoneInfo("America/New_York")
+    ) == "Jul 1, 2026 · 2:00\N{NO-BREAK SPACE}PM EDT"
+
+
+def test_web_settings_reject_unknown_display_timezone(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="unknown display timezone"):
+        WebSettings(tmp_path, display_timezone="Not/A_Timezone")
 
 
 def _services(
@@ -402,6 +416,7 @@ async def test_version_check_and_acquisition_work_through_ui(tmp_path: Path) -> 
                 await anyio.sleep(0.025)
             assert "succeeded" in status.text
             assert "View registered dataset" in status.text
+            assert "Processed in" in status.text
 
             versions = await client.get("/datasets/source/example/records")
             assert versions.status_code == 200
@@ -410,11 +425,15 @@ async def test_version_check_and_acquisition_work_through_ui(tmp_path: Path) -> 
             assert "Example source" in versions.text
             assert "Source website" in versions.text
             assert "How version checking works" in versions.text
+            assert "Estimated refresh commitment" in versions.text
+            assert "based on the current registered release" in versions.text
+            assert "Last refresh was ready in" in versions.text
             assert "Reads the release identifier" in versions.text
             assert "Check for updates" in versions.text
 
             catalog = await client.get("/")
             assert "Status" in catalog.text
+            assert "Refresh typically" in catalog.text
             assert 'aria-label="Up to date"' in catalog.text
             assert "no new check is needed until" in catalog.text
 
@@ -495,13 +514,17 @@ async def test_catalog_rendering_preserves_names_and_escapes_file_breaks(
     assert "version checking and registration are unavailable" in catalog.text
     assert dataset.status_code == 200
     assert "Automatic version checks and registration are not available" in dataset.text
+    assert "Dependency tree" not in dataset.text
+    assert "Dependency tree" not in dataset.text
     assert 'href="javascript:' not in dataset.text
     assert "javascript:alert(1)" in dataset.text
     assert version.status_code == 200
+    assert "Dependency tree" not in version.text
     assert "unsafe_<wbr>&lt;tag&gt;_<wbr>file.tsv" in version.text
     assert "unsafe_<tag>_file.tsv" not in version.text
     assert "SHA-256" in version.text
     assert "Source provenance" in version.text
+    assert "Dependency tree" not in version.text
     assert 'href="javascript:' not in version.text
 
 

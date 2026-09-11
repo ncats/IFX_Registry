@@ -64,6 +64,8 @@ class BuiltInSourceFactory:
     def __init__(
         self,
         http: HttpGateway,
+        *,
+        cure_api_key: str | None = None,
         definitions: Mapping[str, SourceFactoryDefinition] | None = None,
     ):
         self._http = http
@@ -83,7 +85,7 @@ class BuiltInSourceFactory:
                     expected_file_count=len(CHEBI_FILES),
                 ),
                 "cure_case_reports": SourceFactoryDefinition(
-                    CureCaseReportsSource,
+                    _cure_builder(cure_api_key),
                     expected_file_count=1,
                 ),
                 "glygen_proteins": SourceFactoryDefinition(
@@ -146,6 +148,17 @@ class BuiltInSourceFactory:
             adapter=adapter,
             expected_file_count=definition.expected_file_count,
         )
+
+
+def _cure_builder(api_key: str | None) -> Callable[[HttpGateway], SourceAdapter]:
+    def build(http: HttpGateway) -> SourceAdapter:
+        if api_key is None:
+            raise SourceConfigurationError(
+                "CURE ID is enabled but its credential file is not configured"
+            )
+        return CureCaseReportsSource(http, api_key)
+
+    return build
 
 
 def _last_modified_builder(

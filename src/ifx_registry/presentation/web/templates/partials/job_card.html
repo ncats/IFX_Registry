@@ -13,6 +13,11 @@
     </div>
     <div class="job-meta">
         <span>Release {{ job.expected_version }}</span>
+        {% if job.status.value == "succeeded" and job.processing_duration %}
+            <small>Processed in {{ job.processing_duration|duration }}{% if job.queue_duration and job.queue_duration.total_seconds() >= 1 %} after {{ job.queue_duration|duration }} queued{% endif %}</small>
+        {% elif job.status.value == "succeeded" and job.request_to_completion %}
+            <small>Ready in {{ job.request_to_completion|duration }}</small>
+        {% endif %}
         <small>{{ job.updated_at|displaytime }}</small>
     </div>
 </article>

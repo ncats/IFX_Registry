@@ -1,5 +1,6 @@
 """Tests for source-list enrichment with optional operational state."""
 
+from datetime import UTC, datetime, timedelta
 from typing import Never
 
 from ifx_registry.application.ports.catalog import SourceCatalog
@@ -8,8 +9,9 @@ from ifx_registry.application.ports.source import SourceAdapter
 from ifx_registry.application.use_cases.list_sources import ListSources
 from ifx_registry.domain.catalog import SourceDescriptor
 from ifx_registry.domain.errors import OperationalStateUnavailableError
-from ifx_registry.domain.jobs import AcquisitionJob
+from ifx_registry.domain.jobs import AcquisitionJob, AcquisitionStatus
 from ifx_registry.domain.models import DatasetId
+from ifx_registry.infrastructure.job_store import SQLiteAcquisitionJobStore
 
 
 class DescriptorCatalog(SourceCatalog):
@@ -48,6 +50,15 @@ class UnavailableJobStore(AcquisitionJobStore):
     def list_active(self) -> tuple[AcquisitionJob, ...]:
         self._unavailable()
 
+    def list_recent_successful(
+        self,
+        dataset: DatasetId,
+        *,
+        limit: int = 5,
+    ) -> tuple[AcquisitionJob, ...]:
+        del dataset, limit
+        self._unavailable()
+
     def find_active(self, dataset: DatasetId) -> AcquisitionJob | None:
         del dataset
         self._unavailable()
@@ -67,3 +78,28 @@ def test_catalog_sources_remain_available_when_job_state_is_unavailable() -> Non
     assert result[0].descriptor == descriptor
     assert result[0].active_job is None
     assert not result[0].operational_state_available
+
+
+def test_source_overview_estimates_median_request_to_completion(tmp_path) -> None:
+    dataset = DatasetId("example", "records")
+    descriptor = SourceDescriptor(dataset, "Example", "Example records.", 1)
+    jobs = SQLiteAcquisitionJobStore(tmp_path / "registry.sqlite3")
+    now = datetime.now(UTC)
+    for index, minutes in enumerate((2, 8, 5), start=1):
+        jobs.add(
+            AcquisitionJob(
+                f"job-{index}",
+                dataset,
+                str(index),
+                status=AcquisitionStatus.SUCCEEDED,
+                stage="complete",
+                created_at=now + timedelta(hours=index),
+                updated_at=now + timedelta(hours=index, minutes=minutes),
+                completed_at=now + timedelta(hours=index, minutes=minutes),
+            )
+        )
+
+    overview = ListSources(DescriptorCatalog(descriptor), jobs).execute()[0]
+
+    assert overview.typical_request_to_completion == timedelta(minutes=5)
+    assert len(overview.recent_successful_jobs) == 3

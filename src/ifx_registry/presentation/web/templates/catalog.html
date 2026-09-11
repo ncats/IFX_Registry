@@ -41,6 +41,7 @@
                 <thead><tr><th>Data source</th><th>Type</th><th>Latest version</th><th>Versions</th><th>Contents</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                 {% for item in datasets %}
+                    {% set overview = source_overviews.get(item.dataset) %}
                     <tr data-catalog-row data-kind="{{ item.kind.value }}" data-search="{{ item.dataset.source|sourcename }} {{ item.dataset.dataset|datasetname }} {{ item.dataset }} {{ item.kind.value }} {{ item.update_capability.value|replace('_', ' ') }} {% for snapshot in item.versions %}{{ snapshot.version }} {% endfor %}">
                         <td class="source-identity">
                             <strong>{{ item.dataset.source|sourcename }}</strong>
@@ -50,12 +51,11 @@
                         <td class="catalog-kind"><span class="kind-badge kind-{{ item.kind.value }}">{{ item.kind.value|title }}</span></td>
                         <td class="catalog-latest"><span class="mobile-label">Latest version</span><strong>{{ item.latest.version }}</strong><small>{{ item.latest.published_at|displaytime }}</small></td>
                         <td class="catalog-version-count"><span class="mobile-label">Versions</span>{{ item.versions|length }}</td>
-                        <td class="catalog-contents"><span class="mobile-label">Contents</span>{% if item.kind.value == "external" %}Metadata only{% else %}{{ item.file_count }} file{% if item.file_count != 1 %}s{% endif %} · {{ item.total_size_bytes|filesize }}{% endif %}</td>
+                        <td class="catalog-contents"><span class="mobile-label">Contents</span>{% if item.kind.value == "external" %}Metadata only{% else %}{{ item.file_count }} file{% if item.file_count != 1 %}s{% endif %} · {{ item.total_size_bytes|filesize }}{% if overview and overview.typical_request_to_completion %}<small>Refresh typically {{ overview.typical_request_to_completion|duration }}</small>{% endif %}{% endif %}</td>
                         <td class="catalog-capability-cell">
                             <span class="mobile-label">Status</span>
-                            {% set overview = source_overviews.get(item.dataset) %}
                             {% if item.kind.value == "source" and item.update_capability.value == "check_and_register" and overview %}
-                                {% with checked_version=none, assessment=none, freshness=source_check_statuses.get(item.dataset), check_error=none, registry_error=none, latest_registered_version=item.latest.version %}
+                                {% with checked_version=none, assessment=none, freshness=source_check_statuses.get(item.dataset), check_error=none, registry_error=none, latest_registered_version=item.latest.version, latest_registered_size_bytes=item.total_size_bytes %}
                                     {% include "partials/catalog_update.html" %}
                                 {% endwith %}
                             {% elif item.kind.value == "derived" %}

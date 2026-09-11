@@ -12,6 +12,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import uvicorn
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -74,6 +75,7 @@ from ifx_registry.infrastructure.aws_credentials import (
     AwsCredentialSettings,
     load_aws_credentials,
 )
+from ifx_registry.infrastructure.cure_credentials import load_cure_credentials
 from ifx_registry.infrastructure.derived_build_job_store import SQLiteDerivedBuildJobStore
 from ifx_registry.infrastructure.derived_recipe_catalog import InMemoryDerivedRecipeCatalog
 from ifx_registry.infrastructure.http import RequestsHttpGateway
@@ -166,11 +168,19 @@ class WebSettings:
     aws_role_arn: str | None = None
     aws_external_id: str | None = None
     aws_credentials: Path | None = None
+    cure_credentials: Path | None = None
+    display_timezone: str = "America/New_York"
     version_check_ttl_seconds: int = 7 * 24 * 60 * 60
 
     def __post_init__(self) -> None:
         if self.version_check_ttl_seconds <= 0:
             raise ValueError("version-check TTL must be positive")
+        try:
+            ZoneInfo(self.display_timezone)
+        except ZoneInfoNotFoundError as error:
+            raise ValueError(
+                f"unknown display timezone: {self.display_timezone}"
+            ) from error
 
     @classmethod
     def from_environment(cls) -> WebSettings:
@@ -190,6 +200,12 @@ class WebSettings:
             aws_external_id=os.environ.get("IFX_REGISTRY_AWS_EXTERNAL_ID"),
             aws_credentials=(
                 Path(value) if (value := os.environ.get("IFX_REGISTRY_AWS_CREDENTIALS")) else None
+            ),
+            cure_credentials=(
+                Path(value) if (value := os.environ.get("IFX_REGISTRY_CURE_CREDENTIALS")) else None
+            ),
+            display_timezone=os.environ.get(
+                "IFX_REGISTRY_DISPLAY_TIMEZONE", "America/New_York"
             ),
             version_check_ttl_seconds=int(
                 os.environ.get("IFX_REGISTRY_VERSION_CHECK_TTL_SECONDS", 7 * 24 * 60 * 60)
@@ -230,6 +246,7 @@ class DatasetUpdateResult:
     registry_error: str | None
     status_code: int
     latest_registered_version: SourceVersion | None
+    latest_registered_size_bytes: int | None
 
     def template_context(self) -> dict[str, object]:
         return {
@@ -239,13 +256,21 @@ class DatasetUpdateResult:
             "check_error": self.check_error,
             "registry_error": self.registry_error,
             "latest_registered_version": self.latest_registered_version,
+            "latest_registered_size_bytes": self.latest_registered_size_bytes,
         }
 
 
 def build_services(settings: WebSettings) -> WebServices:
     state_directory = settings.state_directory.resolve()
     http = RequestsHttpGateway()
-    sources = YamlSourceCatalogLoader(BuiltInSourceFactory(http)).load(
+    cure_api_key = (
+        load_cure_credentials(settings.cure_credentials).api_key
+        if settings.cure_credentials is not None
+        else None
+    )
+    sources = YamlSourceCatalogLoader(
+        BuiltInSourceFactory(http, cure_api_key=cure_api_key)
+    ).load(
         settings.source_configuration
     )
     jobs = SQLiteAcquisitionJobStore(state_directory / "registry.sqlite3")
@@ -277,6 +302,7 @@ def build_services(settings: WebSettings) -> WebServices:
     recipes = InMemoryDerivedRecipeCatalog(built_in_recipes())
     derived_planner = PlanDerivedBuild(recipes, snapshots, derived, external)
     workspaces = LocalAcquisitionWorkspaceProvider(state_directory / "work")
+    workspaces.cleanup_abandoned()
     acquire = AcquireSourceSnapshot(sources, jobs, snapshots, workspaces)
     scheduler = ThreadAcquisitionScheduler(acquire.execute)
     materializer = FileSystemSnapshotMaterializer(snapshots)
@@ -363,8 +389,12 @@ def create_app(
         lifespan=lifespan,
     )
     templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
-    templates.env.filters["displaytime"] = _format_datetime
+    display_timezone = ZoneInfo(resolved_settings.display_timezone)
+    templates.env.filters["displaytime"] = lambda value: _format_datetime(
+        value, display_timezone
+    )
     templates.env.filters["filesize"] = _format_file_size
+    templates.env.filters["duration"] = _format_duration
     templates.env.filters["sourcename"] = _format_source_name
     templates.env.filters["datasetname"] = _format_dataset_name
     templates.env.filters["breakfilename"] = _break_filename
@@ -466,6 +496,9 @@ def create_app(
             status_code=status_code,
             latest_registered_version=(
                 registered_dataset.latest.version if registered_dataset else None
+            ),
+            latest_registered_size_bytes=(
+                registered_dataset.latest.total_size_bytes if registered_dataset else None
             ),
         )
 
@@ -837,23 +870,53 @@ def create_app(
             )
         except (OperationalStateUnavailableError, RegistryUnavailableError) as error:
             return _derived_build_error(
-                request, str(error), 503, options, submitted, calculated_output_version
+                request,
+                str(error),
+                503,
+                options,
+                submitted,
+                calculated_output_version,
+                display_timezone,
             )
         except CatalogConsistencyError as error:
             return _derived_build_error(
-                request, str(error), 500, options, submitted, calculated_output_version
+                request,
+                str(error),
+                500,
+                options,
+                submitted,
+                calculated_output_version,
+                display_timezone,
             )
         except (SnapshotNotFoundError, InvalidDatasetIdError) as error:
             return _derived_build_error(
-                request, str(error), 404, options, submitted, calculated_output_version
+                request,
+                str(error),
+                404,
+                options,
+                submitted,
+                calculated_output_version,
+                display_timezone,
             )
         except RegistryError as error:
             return _derived_build_error(
-                request, str(error), 409, options, submitted, calculated_output_version
+                request,
+                str(error),
+                409,
+                options,
+                submitted,
+                calculated_output_version,
+                display_timezone,
             )
         except ValueError as error:
             return _derived_build_error(
-                request, str(error), 422, options, submitted, calculated_output_version
+                request,
+                str(error),
+                422,
+                options,
+                submitted,
+                calculated_output_version,
+                display_timezone,
             )
         return templates.TemplateResponse(
             request=request,
@@ -1024,9 +1087,12 @@ def _derived_build_error(
     options: DerivedBuildOptions | None,
     submitted: dict[str, str],
     calculated_output_version: str | None,
+    display_timezone: ZoneInfo,
 ) -> HTMLResponse:
     templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
-    templates.env.filters["displaytime"] = _format_datetime
+    templates.env.filters["displaytime"] = lambda value: _format_datetime(
+        value, display_timezone
+    )
     if options is None:
         return templates.TemplateResponse(
             request=request,
@@ -1047,9 +1113,13 @@ def _derived_build_error(
     )
 
 
-def _format_datetime(value: object) -> str:
+def _format_datetime(value: object, display_timezone: ZoneInfo) -> str:
     if hasattr(value, "astimezone"):
-        return str(value.astimezone().strftime("%b %-d, %Y · %-I:%M\N{NO-BREAK SPACE}%p"))
+        return str(
+            value.astimezone(display_timezone).strftime(
+                "%b %-d, %Y · %-I:%M\N{NO-BREAK SPACE}%p %Z"
+            )
+        )
     return str(value)
 
 
@@ -1062,6 +1132,21 @@ def _format_file_size(value: object) -> str:
             return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
     return str(value)
+
+
+def _format_duration(value: object) -> str:
+    if not isinstance(value, timedelta):
+        return str(value)
+    seconds = max(0, round(value.total_seconds()))
+    if seconds < 60:
+        return f"{seconds} sec"
+    minutes = round(seconds / 60)
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, remaining_minutes = divmod(minutes, 60)
+    if remaining_minutes == 0:
+        return f"{hours} hr"
+    return f"{hours} hr {remaining_minutes} min"
 
 
 def _format_source_name(value: object) -> str:
@@ -1102,6 +1187,8 @@ def main() -> None:
     parser.add_argument("--aws-region", default=defaults.aws_region)
     parser.add_argument("--s3-prefix", default=defaults.s3_prefix)
     parser.add_argument("--aws-credentials", type=Path, default=defaults.aws_credentials)
+    parser.add_argument("--cure-credentials", type=Path, default=defaults.cure_credentials)
+    parser.add_argument("--display-timezone", default=defaults.display_timezone)
     parser.add_argument("--state-dir", type=Path, default=defaults.state_directory)
     parser.add_argument(
         "--sources",
@@ -1122,6 +1209,8 @@ def main() -> None:
         aws_role_arn=defaults.aws_role_arn,
         aws_external_id=defaults.aws_external_id,
         aws_credentials=arguments.aws_credentials,
+        cure_credentials=arguments.cure_credentials,
+        display_timezone=arguments.display_timezone,
         version_check_ttl_seconds=defaults.version_check_ttl_seconds,
     )
     uvicorn.run(create_app(settings), host=settings.host, port=settings.port)

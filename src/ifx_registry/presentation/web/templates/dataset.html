@@ -25,7 +25,7 @@
         {% endif %}
     </section>
     {% if overview %}
-        {% with latest_registered_version=item.latest.version, checked_version=none, assessment=none, check_error=none, registry_error=none %}{% include "partials/dataset_update.html" %}{% endwith %}
+        {% with latest_registered_version=item.latest.version, latest_registered_size_bytes=item.latest.total_size_bytes, checked_version=none, assessment=none, check_error=none, registry_error=none %}{% include "partials/dataset_update.html" %}{% endwith %}
     {% else %}
         <section class="source-detail-card"><span class="eyebrow">Status</span><h2>Read-only source</h2>{% if item.latest.metadata.get("capture_method") %}<p>{{ item.latest.metadata.get("capture_method")|replace('_', ' ')|title }}. New versions are published through the Registry package.</p>{% else %}<p>Automatic version checks and registration are not available for this dataset in this deployment.</p>{% endif %}</section>
     {% endif %}

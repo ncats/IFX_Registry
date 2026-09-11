@@ -155,6 +155,7 @@ class AcquireSourceSnapshot:
                 status=AcquisitionStatus.RUNNING,
                 stage="checking",
                 message="Checking the approved upstream version",
+                started_at=started_at,
                 updated_at=started_at,
             )
         )

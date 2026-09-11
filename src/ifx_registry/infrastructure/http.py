@@ -70,8 +70,15 @@ class HttpGateway(ABC):
     def download(self, url: str, destination: Path, *, timeout: float) -> DownloadedResource:
         """Stream a resource to an exact destination path."""
 
-    def get_json(self, url: str, *, timeout: float) -> HttpJson:
+    def get_json(
+        self,
+        url: str,
+        *,
+        timeout: float,
+        headers: Mapping[str, str] | None = None,
+    ) -> HttpJson:
         """Read JSON when supported by the concrete HTTP adapter."""
+        del headers
         raise SourceAcquisitionError("This HTTP adapter does not support JSON GET requests")
 
     def post_json(self, url: str, payload: Mapping[str, Any], *, timeout: float) -> HttpJson:
@@ -140,12 +147,18 @@ class RequestsHttpGateway(HttpGateway):
             partial_path.unlink(missing_ok=True)
             raise SourceAcquisitionError(f"Could not download {url}: {error}") from error
 
-    def get_json(self, url: str, *, timeout: float) -> HttpJson:
+    def get_json(
+        self,
+        url: str,
+        *,
+        timeout: float,
+        headers: Mapping[str, str] | None = None,
+    ) -> HttpJson:
         try:
             with self._session.get(
                 url,
                 timeout=timeout,
-                headers={"Accept": "application/json"},
+                headers={"Accept": "application/json", **dict(headers or {})},
             ) as response:
                 response.raise_for_status()
                 return HttpJson(response.json(), self._metadata(response))

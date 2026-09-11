@@ -28,6 +28,15 @@ class AcquisitionJobStore(ABC):
         """List every queued or running job."""
 
     @abstractmethod
+    def list_recent_successful(
+        self,
+        dataset: DatasetId,
+        *,
+        limit: int = 5,
+    ) -> tuple[AcquisitionJob, ...]:
+        """List recent successful acquisitions for one dataset."""
+
+    @abstractmethod
     def find_active(self, dataset: DatasetId) -> AcquisitionJob | None:
         """Return the queued or running acquisition holding a dataset lock."""
 

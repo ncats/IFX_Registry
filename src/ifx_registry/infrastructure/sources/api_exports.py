@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
+from time import sleep
 from typing import Any
 from urllib.parse import quote, unquote, urlencode, urljoin, urlsplit
 
@@ -24,6 +25,7 @@ from ifx_registry.infrastructure.http import HttpGateway
 from ifx_registry.infrastructure.workspace import SnapshotWorkspace
 
 Clock = Callable[[], datetime]
+Sleeper = Callable[[float], None]
 
 
 def _now_utc() -> datetime:
@@ -153,7 +155,8 @@ class RequestedCaptureSource(GeneratedSnapshotSource, ABC):
 
 
 CURE_REPORTS_URL = "https://cure-api.ncats.io/v2/reports"
-CURE_FIRST_PAGE = f"{CURE_REPORTS_URL}?{urlencode({'limit': 100, 'sort': 'latest'})}"
+CURE_FIRST_PAGE = f"{CURE_REPORTS_URL}?{urlencode({'limit': 16, 'sort': 'latest'})}"
+CURE_PAGE_DELAY_SECONDS = 0.5
 
 
 class CureCaseReportsSource(RequestedCaptureSource):
@@ -162,6 +165,24 @@ class CureCaseReportsSource(RequestedCaptureSource):
     file_name = "case_reports.jsonl"
     content_type = "application/x-ndjson"
     capture_prefix = "reports"
+
+    def __init__(
+        self,
+        http: HttpGateway,
+        api_key: str,
+        *,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        sleeper: Sleeper = sleep,
+        page_delay_seconds: float = CURE_PAGE_DELAY_SECONDS,
+    ):
+        if not api_key.strip():
+            raise ValueError("CURE ID API key must not be blank")
+        if page_delay_seconds < 0:
+            raise ValueError("CURE ID page delay must not be negative")
+        super().__init__(http, clock=clock)
+        self._request_headers = {"X-API-Key": api_key.strip()}
+        self._sleep = sleeper
+        self._page_delay_seconds = page_delay_seconds
 
     @property
     def dataset(self) -> DatasetId:
@@ -190,6 +211,7 @@ class CureCaseReportsSource(RequestedCaptureSource):
         response = self._http.get_json(
             CURE_FIRST_PAGE,
             timeout=request.timeout.total_seconds(),
+            headers=self._request_headers,
         )
         _cure_results(_require_mapping(response.payload, "CURE reports response"))
 
@@ -218,6 +240,7 @@ class CureCaseReportsSource(RequestedCaptureSource):
                 response = self._http.get_json(
                     next_url,
                     timeout=request.timeout.total_seconds(),
+                    headers=self._request_headers,
                 )
                 payload = _require_mapping(response.payload, "CURE reports response")
                 page_count += 1
@@ -244,6 +267,8 @@ class CureCaseReportsSource(RequestedCaptureSource):
                     if isinstance(next_value, str) and next_value
                     else None
                 )
+                if next_url and self._page_delay_seconds:
+                    self._sleep(self._page_delay_seconds)
         if total_written == 0:
             raise SourceValidationError("CURE reports export returned no records")
         if expected_count is not None and total_written != expected_count:

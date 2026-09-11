@@ -43,6 +43,7 @@ class FakeApiGateway(HttpGateway):
         self.json_posts: dict[str, Any] = {}
         self.download_body = b"accession,name\nP12345,Example\n"
         self.post_downloads: list[tuple[str, Mapping[str, Any]]] = []
+        self.json_get_headers: list[Mapping[str, str]] = []
 
     @staticmethod
     def _metadata(url: str, content_type: str = "application/json") -> HttpMetadata:
@@ -57,7 +58,14 @@ class FakeApiGateway(HttpGateway):
     def download(self, url: str, destination: Path, *, timeout: float) -> DownloadedResource:
         raise AssertionError(f"Unexpected download {url}")
 
-    def get_json(self, url: str, *, timeout: float) -> HttpJson:
+    def get_json(
+        self,
+        url: str,
+        *,
+        timeout: float,
+        headers: Mapping[str, str] | None = None,
+    ) -> HttpJson:
+        self.json_get_headers.append(dict(headers or {}))
         return HttpJson(self.json_gets[url], self._metadata(url))
 
     def post_json(
@@ -85,12 +93,18 @@ class FakeApiGateway(HttpGateway):
 
 def test_cure_exports_every_page_under_reserved_capture_version(tmp_path: Path) -> None:
     gateway = FakeApiGateway()
+    delays: list[float] = []
     second_page = f"{CURE_REPORTS_URL}?page=2"
     gateway.json_gets = {
         CURE_FIRST_PAGE: {"count": 2, "results": [{"id": 1}], "next": second_page},
         second_page: {"count": 2, "results": [{"id": 2}], "next": None},
     }
-    source = CureCaseReportsSource(gateway, clock=lambda: FIXED_NOW)
+    source = CureCaseReportsSource(
+        gateway,
+        "test-cure-key",
+        clock=lambda: FIXED_NOW,
+        sleeper=delays.append,
+    )
 
     version = source.discover_latest(VersionProbeRequest())
     snapshot = source.fetch(
@@ -106,6 +120,12 @@ def test_cure_exports_every_page_under_reserved_capture_version(tmp_path: Path) 
         '{"id": 1}',
         '{"id": 2}',
     ]
+    assert gateway.json_get_headers == [
+        {"X-API-Key": "test-cure-key"},
+        {"X-API-Key": "test-cure-key"},
+        {"X-API-Key": "test-cure-key"},
+    ]
+    assert delays == [0.5]
 
 
 def test_glygen_uses_listcache_id_for_check_and_download(tmp_path: Path) -> None:
@@ -214,7 +234,7 @@ def test_cure_rejects_cross_origin_pagination(tmp_path: Path) -> None:
         "results": [{"id": 1}],
         "next": "https://attacker.example/reports?page=2",
     }
-    source = CureCaseReportsSource(gateway, clock=lambda: FIXED_NOW)
+    source = CureCaseReportsSource(gateway, "test-cure-key", clock=lambda: FIXED_NOW)
     version = source.discover_latest(VersionProbeRequest())
 
     with pytest.raises(SourceValidationError, match="unsafe next URL"):

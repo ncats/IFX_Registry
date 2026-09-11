@@ -141,6 +141,9 @@ h1, h2, h3, p { margin-top: 0; }
 .activity-section { margin-top: 58px; }
 .job-list { display: grid; gap: 10px; }
 .job-card { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 17px; align-items: start; padding: 20px 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.refresh-estimate { display: grid; gap: 3px; margin: 12px 0 18px; padding: 11px 13px; border-radius: 8px; background: var(--paper); color: var(--ink-soft); font-size: 12px; }
+.refresh-estimate strong { color: var(--ink); }
+.catalog-contents small { display: block; margin-top: 4px; }
 .job-status-icon { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: #8da09a; }
 .status-running .job-status-icon, .status-queued .job-status-icon { background: #3d86aa; box-shadow: 0 0 0 6px #e5f0f6; animation: pulse 1.5s infinite; }
 .status-succeeded .job-status-icon { background: #20a17f; }

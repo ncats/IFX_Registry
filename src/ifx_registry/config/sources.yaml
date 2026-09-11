@@ -16,11 +16,10 @@ sources:
       between both files.
 
   - adapter: cure_case_reports
-    enabled: false
+    enabled: true
     display_name: CURE ID Case Reports
     description: >-
-      A complete timestamped export of case reports from the CURE ID API;
-      disabled until NCATS provides the required external API agreement and credentials.
+      A complete timestamped export of case reports from the authorized CURE ID API.
 
   - adapter: glygen_proteins
     enabled: true

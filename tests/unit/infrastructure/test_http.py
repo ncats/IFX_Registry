@@ -56,9 +56,11 @@ class FakeSession:
     def __init__(self, response: FakeResponse):
         self.response = response
         self.headers: dict[str, str] = {}
+        self.last_get: tuple[str, dict[str, Any]] | None = None
         self.last_post: tuple[str, dict[str, Any]] | None = None
 
     def get(self, url: str, **kwargs: Any) -> FakeResponse:
+        self.last_get = (url, kwargs)
         return self.response
 
     def head(self, url: str, **kwargs: Any) -> FakeResponse:
@@ -129,6 +131,24 @@ def test_json_get_decodes_payload_and_preserves_metadata() -> None:
 
     assert result.payload == {"version": "42"}
     assert result.metadata.final_url == "https://cdn.example.org/data.tsv"
+
+
+def test_json_get_sends_additional_request_headers() -> None:
+    response = FakeResponse([], json_payload={"count": 0})
+    session = FakeSession(response)
+    gateway = RequestsHttpGateway(cast(requests.Session, session), chunk_size=4)
+
+    gateway.get_json(
+        "https://example.org/reports",
+        timeout=10,
+        headers={"X-API-Key": "test-key"},
+    )
+
+    assert session.last_get is not None
+    assert session.last_get[1]["headers"] == {
+        "Accept": "application/json",
+        "X-API-Key": "test-key",
+    }
 
 
 def test_json_post_sends_payload() -> None:

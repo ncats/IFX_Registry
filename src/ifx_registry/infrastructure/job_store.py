@@ -32,8 +32,8 @@ class SQLiteAcquisitionJobStore(AcquisitionJobStore):
                     """
                     INSERT INTO acquisition_jobs (
                         job_id, source, dataset, expected_version, status, stage, message,
-                        snapshot_id, error, created_at, updated_at, completed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        snapshot_id, error, created_at, started_at, updated_at, completed_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     self._values(job),
                 )
@@ -61,8 +61,8 @@ class SQLiteAcquisitionJobStore(AcquisitionJobStore):
                 """
                 UPDATE acquisition_jobs SET
                     source = ?, dataset = ?, expected_version = ?, status = ?, stage = ?,
-                    message = ?, snapshot_id = ?, error = ?, created_at = ?, updated_at = ?,
-                    completed_at = ?
+                    message = ?, snapshot_id = ?, error = ?, created_at = ?, started_at = ?,
+                    updated_at = ?, completed_at = ?
                 WHERE job_id = ?
                 """,
                 (*self._values(job)[1:], job.job_id),
@@ -89,6 +89,30 @@ class SQLiteAcquisitionJobStore(AcquisitionJobStore):
                 ORDER BY created_at DESC
                 """,
                 (AcquisitionStatus.QUEUED.value, AcquisitionStatus.RUNNING.value),
+            ).fetchall()
+        return tuple(self._from_row(row) for row in rows)
+
+    def list_recent_successful(
+        self,
+        dataset: DatasetId,
+        *,
+        limit: int = 5,
+    ) -> tuple[AcquisitionJob, ...]:
+        if limit <= 0:
+            raise ValueError("successful job list limit must be positive")
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM acquisition_jobs
+                WHERE source = ? AND dataset = ? AND status = ?
+                ORDER BY completed_at DESC LIMIT ?
+                """,
+                (
+                    dataset.source,
+                    dataset.dataset,
+                    AcquisitionStatus.SUCCEEDED.value,
+                    limit,
+                ),
             ).fetchall()
         return tuple(self._from_row(row) for row in rows)
 
@@ -143,6 +167,7 @@ class SQLiteAcquisitionJobStore(AcquisitionJobStore):
                     snapshot_id TEXT,
                     error TEXT,
                     created_at TEXT NOT NULL,
+                    started_at TEXT,
                     updated_at TEXT NOT NULL,
                     completed_at TEXT
                 )
@@ -155,6 +180,12 @@ class SQLiteAcquisitionJobStore(AcquisitionJobStore):
                 WHERE status IN ('queued', 'running')
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(acquisition_jobs)")
+            }
+            if "started_at" not in columns:
+                connection.execute("ALTER TABLE acquisition_jobs ADD COLUMN started_at TEXT")
 
     def _mark_interrupted_jobs_failed(self) -> None:
         interrupted_at = datetime.now(UTC).isoformat()
@@ -190,6 +221,7 @@ class SQLiteAcquisitionJobStore(AcquisitionJobStore):
             job.snapshot_id,
             job.error,
             job.created_at.isoformat(),
+            job.started_at.isoformat() if job.started_at else None,
             job.updated_at.isoformat(),
             job.completed_at.isoformat() if job.completed_at else None,
         )
@@ -206,6 +238,9 @@ class SQLiteAcquisitionJobStore(AcquisitionJobStore):
             snapshot_id=str(row["snapshot_id"]) if row["snapshot_id"] else None,
             error=str(row["error"]) if row["error"] else None,
             created_at=datetime.fromisoformat(str(row["created_at"])),
+            started_at=(
+                datetime.fromisoformat(str(row["started_at"])) if row["started_at"] else None
+            ),
             updated_at=datetime.fromisoformat(str(row["updated_at"])),
             completed_at=(
                 datetime.fromisoformat(str(row["completed_at"])) if row["completed_at"] else None

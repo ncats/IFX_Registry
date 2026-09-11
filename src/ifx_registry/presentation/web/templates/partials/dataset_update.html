@@ -8,6 +8,19 @@
     </div>
     <h2 id="update-registry-title">Update Registry</h2>
 
+    {% if latest_registered_size_bytes or (overview and overview.typical_request_to_completion) %}
+        <div class="refresh-estimate">
+            <strong>Estimated refresh commitment</strong>
+            <span>
+                {% if latest_registered_size_bytes %}About {{ latest_registered_size_bytes|filesize }}, based on the current registered release{% endif %}
+                {% if latest_registered_size_bytes and overview and overview.typical_request_to_completion %} · {% endif %}
+                {% if overview and overview.typical_request_to_completion %}
+                    {% if overview.recent_successful_jobs|length == 1 %}Last refresh was ready in {{ overview.typical_request_to_completion|duration }}{% else %}Usually ready in {{ overview.typical_request_to_completion|duration }}, based on {{ overview.recent_successful_jobs|length }} successful refreshes{% endif %} (including any queue time)
+                {% endif %}
+            </span>
+        </div>
+    {% endif %}
+
     {% if overview and not overview.operational_state_available %}
         <p>Update status is temporarily unavailable. Registered versions remain available to use.</p>
     {% elif not overview %}

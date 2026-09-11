@@ -34,7 +34,9 @@ class UnusedHttpGateway(HttpGateway):
 
 
 def _loader() -> YamlSourceCatalogLoader:
-    return YamlSourceCatalogLoader(BuiltInSourceFactory(UnusedHttpGateway()))
+    return YamlSourceCatalogLoader(
+        BuiltInSourceFactory(UnusedHttpGateway(), cure_api_key="test-cure-key")
+    )
 
 
 def test_default_configuration_installs_built_in_sources_in_display_order() -> None:
@@ -45,6 +47,7 @@ def test_default_configuration_installs_built_in_sources_in_display_order() -> N
     assert [descriptor.dataset for descriptor in descriptors] == [
         DatasetId("reactome", "pathways"),
         DatasetId("uniprot", "human"),
+        DatasetId("cure", "case_reports"),
         DatasetId("glygen", "proteins"),
         DatasetId("dark_kinome", "kinases"),
         DatasetId("resolute", "genes"),
@@ -97,6 +100,7 @@ def test_default_configuration_installs_built_in_sources_in_display_order() -> N
         1,
         1,
         1,
+        1,
         2,
         1,
         1,
@@ -130,6 +134,24 @@ def test_default_configuration_installs_built_in_sources_in_display_order() -> N
         1,
         1,
     ]
+
+
+def test_enabled_cure_source_requires_credentials(tmp_path: Path) -> None:
+    configuration = tmp_path / "sources.yaml"
+    configuration.write_text(
+        """
+schema_version: 1
+sources:
+  - adapter: cure_case_reports
+    enabled: true
+    display_name: CURE ID Case Reports
+    description: Authorized reports.
+""".strip(),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SourceConfigurationError, match="credential file"):
+        YamlSourceCatalogLoader(BuiltInSourceFactory(UnusedHttpGateway())).load(configuration)
 
 
 def test_configuration_can_disable_a_source_and_control_presentation(tmp_path: Path) -> None:

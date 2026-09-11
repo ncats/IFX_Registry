@@ -464,6 +464,13 @@ of querying the provider again. Override the window when needed:
 IFX_REGISTRY_VERSION_CHECK_TTL_SECONDS=604800 docker compose up --build
 ```
 
+Registry timestamps are stored in UTC and displayed in US Eastern time by default.
+Set another IANA timezone for the web interface when needed:
+
+```bash
+IFX_REGISTRY_DISPLAY_TIMEZONE=America/Chicago docker compose up --build
+```
+
 This first implementation uses a local SQLite job database and a serialized
 background download worker, so deploy it as one application replica. Docker
 Compose reads `secrets/aws_ifx_registry.yaml`, using the same
