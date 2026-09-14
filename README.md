@@ -479,6 +479,11 @@ retain the prefix:
 IFX_REGISTRY_ROOT_PATH=/registry docker compose up --build
 ```
 
+The Compose deployment trusts reverse-proxy forwarding headers so FastAPI sees
+the browser-facing scheme and client address across Docker's bridge network.
+Keep the published Registry port behind the trusted reverse proxy, as required
+above; do not expose it directly to untrusted clients.
+
 This first implementation uses a local SQLite job database and a serialized
 background download worker, so deploy it as one application replica. Docker
 Compose reads `secrets/aws_ifx_registry.yaml`, using the same
