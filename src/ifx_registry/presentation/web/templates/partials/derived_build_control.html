@@ -13,7 +13,7 @@
             {% with job=build_options.failed_job %}{% include "partials/derived_build_job.html" %}{% endwith %}
         </details>
     {% endif %}
-    <form class="derived-build-form js-async-form" method="post" action="/datasets/derived/{{ build_options.recipe.dataset.source }}/{{ build_options.recipe.dataset.dataset }}/builds" data-target="#derived-build-control" data-working-label="Starting build…" data-build-preview-url="/datasets/derived/{{ build_options.recipe.dataset.source }}/{{ build_options.recipe.dataset.dataset }}/build-preview">
+    <form class="derived-build-form js-async-form" method="post" action="{{ root_path }}/datasets/derived/{{ build_options.recipe.dataset.source }}/{{ build_options.recipe.dataset.dataset }}/builds" data-target="#derived-build-control" data-working-label="Starting build…" data-build-preview-url="{{ root_path }}/datasets/derived/{{ build_options.recipe.dataset.source }}/{{ build_options.recipe.dataset.dataset }}/build-preview">
         <fieldset{% if not build_options.can_build %} disabled{% endif %}>
             <legend>Exact registered inputs</legend>
             {% for input_options in build_options.inputs %}

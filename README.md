@@ -471,6 +471,14 @@ Set another IANA timezone for the web interface when needed:
 IFX_REGISTRY_DISPLAY_TIMEZONE=America/Chicago docker compose up --build
 ```
 
+When the reverse proxy publishes the application beneath a URL prefix, configure
+that ASGI root path so generated links, static assets, form actions, and redirects
+retain the prefix:
+
+```bash
+IFX_REGISTRY_ROOT_PATH=/registry docker compose up --build
+```
+
 This first implementation uses a local SQLite job database and a serialized
 background download worker, so deploy it as one application replica. Docker
 Compose reads `secrets/aws_ifx_registry.yaml`, using the same

@@ -161,6 +161,7 @@ class WebSettings:
     source_configuration: Path = DEFAULT_SOURCE_CONFIGURATION
     host: str = "127.0.0.1"
     port: int = 8000
+    root_path: str = ""
     bucket: str | None = None
     aws_region: str | None = None
     s3_prefix: str = ""
@@ -173,6 +174,10 @@ class WebSettings:
     version_check_ttl_seconds: int = 7 * 24 * 60 * 60
 
     def __post_init__(self) -> None:
+        normalized_root_path = self.root_path.rstrip("/")
+        if normalized_root_path and not normalized_root_path.startswith("/"):
+            raise ValueError("root path must be empty or start with '/'")
+        object.__setattr__(self, "root_path", normalized_root_path)
         if self.version_check_ttl_seconds <= 0:
             raise ValueError("version-check TTL must be positive")
         try:
@@ -192,6 +197,7 @@ class WebSettings:
             ),
             host=os.environ.get("IFX_REGISTRY_HOST", "127.0.0.1"),
             port=int(os.environ.get("IFX_REGISTRY_PORT", "8000")),
+            root_path=os.environ.get("IFX_REGISTRY_ROOT_PATH", ""),
             bucket=os.environ.get("IFX_REGISTRY_BUCKET"),
             aws_region=os.environ.get("AWS_REGION"),
             s3_prefix=os.environ.get("IFX_REGISTRY_S3_PREFIX", ""),
@@ -386,9 +392,11 @@ def create_app(
     application = FastAPI(
         title="IFX Data Registry",
         version="0.2.0",
+        root_path=resolved_settings.root_path,
         lifespan=lifespan,
     )
     templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
+    templates.env.globals["root_path"] = resolved_settings.root_path
     display_timezone = ZoneInfo(resolved_settings.display_timezone)
     templates.env.filters["displaytime"] = lambda value: _format_datetime(
         value, display_timezone
@@ -580,9 +588,14 @@ def create_app(
         )
 
     @application.get("/datasets/{source_name}/{dataset_name}")
-    def legacy_dataset_versions(source_name: str, dataset_name: str) -> RedirectResponse:
+    def legacy_dataset_versions(
+        request: Request, source_name: str, dataset_name: str
+    ) -> RedirectResponse:
         return RedirectResponse(
-            url=f"/datasets/source/{source_name}/{dataset_name}",
+            url=(
+                f"{request.scope.get('root_path', '')}/datasets/source/"
+                f"{source_name}/{dataset_name}"
+            ),
             status_code=308,
         )
 
@@ -600,7 +613,10 @@ def create_app(
             kind = CatalogKind(kind_name)
         except ValueError:
             return RedirectResponse(
-                url=f"/datasets/source/{kind_name}/{source_name}/{dataset_name}",
+                url=(
+                    f"{request.scope.get('root_path', '')}/datasets/source/"
+                    f"{kind_name}/{source_name}/{dataset_name}"
+                ),
                 status_code=308,
             )
         try:
@@ -950,8 +966,10 @@ def create_app(
         )
 
     @application.get("/operations", response_class=RedirectResponse)
-    def operations() -> RedirectResponse:
-        return RedirectResponse(url="/", status_code=303)
+    def operations(request: Request) -> RedirectResponse:
+        return RedirectResponse(
+            url=f"{request.scope.get('root_path', '')}/", status_code=303
+        )
 
     @application.post(
         "/sources/{source_name}/{dataset_name}/check",
@@ -1183,6 +1201,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the IFX Data Registry web application")
     parser.add_argument("--host", default=defaults.host)
     parser.add_argument("--port", type=int, default=defaults.port)
+    parser.add_argument(
+        "--root-path",
+        default=defaults.root_path,
+        help="ASGI root path when served beneath a reverse-proxy prefix (for example /registry)",
+    )
     parser.add_argument("--bucket", default=defaults.bucket)
     parser.add_argument("--aws-region", default=defaults.aws_region)
     parser.add_argument("--s3-prefix", default=defaults.s3_prefix)
@@ -1202,6 +1225,7 @@ def main() -> None:
         source_configuration=arguments.sources,
         host=arguments.host,
         port=arguments.port,
+        root_path=arguments.root_path,
         bucket=arguments.bucket,
         aws_region=arguments.aws_region,
         s3_prefix=arguments.s3_prefix,
@@ -1213,7 +1237,12 @@ def main() -> None:
         display_timezone=arguments.display_timezone,
         version_check_ttl_seconds=defaults.version_check_ttl_seconds,
     )
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port)
+    uvicorn.run(
+        create_app(settings),
+        host=settings.host,
+        port=settings.port,
+        root_path=settings.root_path,
+    )
 
 
 if __name__ == "__main__":

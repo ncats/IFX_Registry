@@ -32,7 +32,7 @@
     {% elif check_error %}
         <div class="inline-message error"><strong>Couldn’t check upstream</strong><span>{{ check_error }}</span></div>
         <form class="js-async-form update-action" method="post"
-              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
+              action="{{ root_path }}/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
               data-target="#dataset-update" data-mode="replace"
               data-working-label="Checking upstream…" data-focus-result>
             <button class="button secondary" type="submit">Try again</button>
@@ -41,7 +41,7 @@
         <div class="inline-message error"><strong>Registry unavailable</strong><span>{{ registry_error }}</span></div>
         <p>Upstream reported version <strong>{{ checked_version }}</strong>, but registration is disabled until the Registry can confirm authoritative state.</p>
         <form class="js-async-form update-action" method="post"
-              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
+              action="{{ root_path }}/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
               data-target="#dataset-update" data-mode="replace"
               data-working-label="Checking upstream…" data-focus-result>
             <button class="button secondary" type="submit">Check again</button>
@@ -62,14 +62,14 @@
         </div>
         <div class="update-actions">
             <form class="js-async-form" method="post"
-                  action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
+                  action="{{ root_path }}/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
                   data-target="#dataset-update" data-mode="replace"
                   data-working-label="Checking upstream…" data-focus-result>
                 <button class="button secondary" type="submit">Check again</button>
             </form>
             {% if assessment.can_register %}
                 <form class="js-async-form" method="post"
-                      action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/acquisitions"
+                      action="{{ root_path }}/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/acquisitions"
                       data-target="#dataset-job-list" data-mode="prepend"
                       data-working-label="Starting registration…">
                     <input type="hidden" name="expected_version" value="{{ assessment.checked_version.value }}">
@@ -80,7 +80,7 @@
     {% else %}
         <p>Check the upstream source to compare its current release with the latest registered version.</p>
         <form class="js-async-form update-action" method="post"
-              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
+              action="{{ root_path }}/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
               data-target="#dataset-update" data-mode="replace"
               data-working-label="Checking upstream…" data-focus-result>
             <button class="button primary" type="submit">Check for updates</button>

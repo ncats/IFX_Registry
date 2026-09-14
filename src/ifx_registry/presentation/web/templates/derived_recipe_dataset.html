@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ recipe.dataset }} · IFX Data Registry{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Datasets</a><span>/</span><span>{{ recipe.dataset }}</span></nav>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ root_path }}/">Datasets</a><span>/</span><span>{{ recipe.dataset }}</span></nav>
 <header class="page-heading dataset-heading">
     <span class="kind-badge kind-derived">Derived recipe</span>
     <h1>{{ recipe.dataset.source|sourcename }}</h1>

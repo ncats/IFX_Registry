@@ -87,7 +87,7 @@
                                 <span class="catalog-capability-text">{{ source_status }}</span>
                             {% endif %}
                         </td>
-                        <td class="catalog-action"><a class="button secondary" href="/datasets/{{ item.kind.value }}/{{ item.dataset.source }}/{{ item.dataset.dataset }}">View</a></td>
+                        <td class="catalog-action"><a class="button secondary" href="{{ root_path }}/datasets/{{ item.kind.value }}/{{ item.dataset.source }}/{{ item.dataset.dataset }}">View</a></td>
                     </tr>
                 {% endfor %}
                 <tr id="catalog-search-empty" class="source-search-empty" hidden><td colspan="7">No datasets match the current search and type filter. <button type="button" class="clear-filter" id="catalog-clear-filter">Clear search</button></td></tr>
@@ -149,7 +149,7 @@
                         <td class="source-identity"><strong>{{ recipe.dataset.source|sourcename }}</strong><span class="dataset-name">{{ recipe.dataset.dataset|datasetname }}</span><span class="source-id">{{ recipe.dataset }}</span></td>
                         <td>{{ recipe.description }}</td>
                         <td>{{ recipe.inputs|length }} exact registered input{% if recipe.inputs|length != 1 %}s{% endif %}</td>
-                        <td class="catalog-action"><a class="button secondary" href="/datasets/derived/{{ recipe.dataset.source }}/{{ recipe.dataset.dataset }}">Build</a></td>
+                        <td class="catalog-action"><a class="button secondary" href="{{ root_path }}/datasets/derived/{{ recipe.dataset.source }}/{{ recipe.dataset.dataset }}">Build</a></td>
                     </tr>
                 {% endfor %}
                 </tbody>

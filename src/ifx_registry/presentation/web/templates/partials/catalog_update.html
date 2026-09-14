@@ -19,7 +19,7 @@
         {% endif %}
     {% elif freshness and freshness.state.value == "check_failed" %}
         <form class="js-async-form" method="post"
-              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/catalog-check"
+              action="{{ root_path }}/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/catalog-check"
               data-target="#catalog-update-{{ overview.descriptor.dataset.source }}-{{ overview.descriptor.dataset.dataset }}"
               data-mode="replace" data-working-label="Checking…">
             <button class="catalog-capability error" type="submit" aria-label="Recent update check failed; try again" title="Recent update check failed. Try again.">
@@ -29,7 +29,7 @@
         <span class="catalog-capability-text">Check failed</span>
     {% elif check_error or registry_error %}
         <form class="js-async-form" method="post"
-              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/catalog-check"
+              action="{{ root_path }}/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/catalog-check"
               data-target="#catalog-update-{{ overview.descriptor.dataset.source }}-{{ overview.descriptor.dataset.dataset }}"
               data-mode="replace" data-working-label="Checking…">
             <button class="catalog-capability error" type="submit" aria-label="Update check failed; try again" title="Update check failed. Try again.">
@@ -39,7 +39,7 @@
         <span class="catalog-capability-text">Check failed</span>
     {% elif assessment and assessment.can_register %}
         <form class="js-async-form" method="post"
-              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/acquisitions"
+              action="{{ root_path }}/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/acquisitions"
               data-target="#catalog-job-list" data-mode="prepend"
               data-working-label="Starting…">
             <input type="hidden" name="expected_version" value="{{ assessment.checked_version.value }}">
@@ -57,7 +57,7 @@
         <span class="catalog-capability-text">Up to date</span>
     {% else %}
         <form class="js-async-form" method="post"
-              action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/catalog-check"
+              action="{{ root_path }}/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/catalog-check"
               data-target="#catalog-update-{{ overview.descriptor.dataset.source }}-{{ overview.descriptor.dataset.dataset }}"
               data-mode="replace" data-working-label="Checking…">
             <button class="catalog-capability available" type="submit" aria-label="Check for updates" title="Check for updates">

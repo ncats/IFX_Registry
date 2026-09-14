@@ -7,7 +7,7 @@
         <small>Will be registered as <code>{{ build_options.recipe.dataset }}:{{ output_version }}</code>. Calculated from the exact inputs and recipe revision.</small>
         {% if output_version in registered_output_versions %}
             <p class="field-warning">This exact build is already registered.</p>
-            <a class="button secondary" href="/datasets/derived/{{ build_options.recipe.dataset.source }}/{{ build_options.recipe.dataset.dataset }}/{{ output_version }}">View registered version</a>
+            <a class="button secondary" href="{{ root_path }}/datasets/derived/{{ build_options.recipe.dataset.source }}/{{ build_options.recipe.dataset.dataset }}/{{ output_version }}">View registered version</a>
         {% else %}
             <button class="button primary" type="submit">Build &amp; register</button>
         {% endif %}

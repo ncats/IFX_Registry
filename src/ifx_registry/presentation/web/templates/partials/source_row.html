@@ -37,7 +37,7 @@
         {% else %}
         <form class="js-async-form"
               method="post"
-              action="/sources/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
+              action="{{ root_path }}/sources/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/check"
               data-target="#source-{{ overview.descriptor.dataset.source }}-{{ overview.descriptor.dataset.dataset }}"
               data-mode="replace">
             <button class="button secondary" type="submit">Check version</button>
@@ -45,7 +45,7 @@
         {% if checked_version and not overview.active_job %}
             <form class="js-async-form"
                   method="post"
-                  action="/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/acquisitions"
+                  action="{{ root_path }}/datasets/{{ overview.descriptor.dataset.source }}/{{ overview.descriptor.dataset.dataset }}/acquisitions"
                   data-target="#catalog-job-list"
                   data-mode="prepend">
                 <input type="hidden" name="expected_version" value="{{ checked_version.value }}">

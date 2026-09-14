@@ -9,12 +9,12 @@
 </head>
 <body>
 <header class="topbar">
-    <a class="brand" href="/" aria-label="IFX Data Registry home">
+    <a class="brand" href="{{ root_path }}/" aria-label="IFX Data Registry home">
         <span class="brand-mark">IFX</span>
         <span>Data Registry</span>
     </a>
     <nav class="primary-nav" aria-label="Primary navigation">
-        <a href="/" {% if active_page == "catalog" %}aria-current="page"{% endif %}>Datasets</a>
+        <a href="{{ root_path }}/" {% if active_page == "catalog" %}aria-current="page"{% endif %}>Datasets</a>
     </nav>
 </header>
 <main class="page-shell">

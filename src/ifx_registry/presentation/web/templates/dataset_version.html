@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ snapshot.dataset }} {{ snapshot.version }} · IFX Data Registry{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Datasets</a><span>/</span><a href="/datasets/{{ kind.value }}/{{ snapshot.dataset.source }}/{{ snapshot.dataset.dataset }}">{{ snapshot.dataset }}</a><span>/</span><span>{{ snapshot.version }}</span></nav>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ root_path }}/">Datasets</a><span>/</span><a href="{{ root_path }}/datasets/{{ kind.value }}/{{ snapshot.dataset.source }}/{{ snapshot.dataset.dataset }}">{{ snapshot.dataset }}</a><span>/</span><span>{{ snapshot.version }}</span></nav>
 <header class="page-heading dataset-heading">
     <span class="kind-badge kind-{{ kind.value }}">{{ kind.value|title }}</span>
     <h1>{{ snapshot.dataset.source|sourcename }}</h1>
@@ -64,7 +64,7 @@
             {% else %}<span class="freshness unavailable">Status unavailable</span>{% endif %}
             {% if dependency.metadata_only %}<span class="metadata-only-label">Metadata only</span>{% endif %}
             </span>
-            {% if dependency.freshness.value in ("latest_registered", "older_version") %}<a class="lineage-link" href="/datasets/{{ dependency.kind.value }}/{{ dependency.reference.ref.dataset.source }}/{{ dependency.reference.ref.dataset.dataset }}/{{ dependency.pinned_version }}">View pinned input</a>{% endif %}
+            {% if dependency.freshness.value in ("latest_registered", "older_version") %}<a class="lineage-link" href="{{ root_path }}/datasets/{{ dependency.kind.value }}/{{ dependency.reference.ref.dataset.source }}/{{ dependency.reference.ref.dataset.dataset }}/{{ dependency.pinned_version }}">View pinned input</a>{% endif %}
         </li>
     {% endfor %}{% else %}<li><span class="freshness unavailable">Dependency status unavailable</span></li>{% endif %}
     </ul>

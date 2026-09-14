@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ item.dataset }} · IFX Data Registry{% endblock %}
 {% block content %}
-<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/">Datasets</a><span>/</span><span>{{ item.dataset }}</span></nav>
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ root_path }}/">Datasets</a><span>/</span><span>{{ item.dataset }}</span></nav>
 <header class="page-heading dataset-heading">
     <span class="kind-badge kind-{{ item.kind.value }}">{{ item.kind.value|title }}</span>
     <h1>{{ item.dataset.source|sourcename }}</h1>
@@ -55,7 +55,7 @@
     <div class="source-table-wrap">
         <table class="source-table catalog-table version-table">
             <thead><tr><th>Version</th><th>Registered</th><th>Contents</th><th></th></tr></thead>
-            <tbody>{% for snapshot in item.versions %}<tr><td><span class="mobile-label">Version</span><strong>{{ snapshot.version }}</strong><span class="source-id">{{ snapshot.snapshot_id }}</span></td><td><span class="mobile-label">Registered</span>{{ snapshot.published_at|displaytime }}</td><td><span class="mobile-label">Contents</span>{% if item.kind.value == "external" %}Metadata only{% else %}{{ snapshot.files|length }} file{% if snapshot.files|length != 1 %}s{% endif %} · {{ snapshot.total_size_bytes|filesize }}{% endif %}</td><td><a class="button secondary" href="/datasets/{{ item.kind.value }}/{{ snapshot.dataset.source }}/{{ snapshot.dataset.dataset }}/{{ snapshot.version }}">View details</a></td></tr>{% endfor %}</tbody>
+            <tbody>{% for snapshot in item.versions %}<tr><td><span class="mobile-label">Version</span><strong>{{ snapshot.version }}</strong><span class="source-id">{{ snapshot.snapshot_id }}</span></td><td><span class="mobile-label">Registered</span>{{ snapshot.published_at|displaytime }}</td><td><span class="mobile-label">Contents</span>{% if item.kind.value == "external" %}Metadata only{% else %}{{ snapshot.files|length }} file{% if snapshot.files|length != 1 %}s{% endif %} · {{ snapshot.total_size_bytes|filesize }}{% endif %}</td><td><a class="button secondary" href="{{ root_path }}/datasets/{{ item.kind.value }}/{{ snapshot.dataset.source }}/{{ snapshot.dataset.dataset }}/{{ snapshot.version }}">View details</a></td></tr>{% endfor %}</tbody>
         </table>
     </div>
 </section>

@@ -1,7 +1,7 @@
 <article class="job-card build-job status-{{ job.status.value }}"
          id="{{ job_dom_id|default('build-job-' ~ job.job_id) }}"
          data-build-job
-         {% if not job.status.is_terminal %}data-job-poll="/build-jobs/{{ job.job_id }}"{% endif %}>
+         {% if not job.status.is_terminal %}data-job-poll="{{ root_path }}/build-jobs/{{ job.job_id }}"{% endif %}>
     <div class="job-status-icon" aria-hidden="true"></div>
     <div class="job-main">
         <div class="job-heading">
@@ -10,7 +10,7 @@
         </div>
         <p>{{ job.message }}</p>
         {% if job.error %}<div class="job-error">{{ job.error }}</div>{% endif %}
-        {% if job.snapshot_id %}<a class="published-result" href="/datasets/derived/{{ job.dataset.source }}/{{ job.dataset.dataset }}/{{ job.output_version }}">View registered output</a>{% endif %}
+        {% if job.snapshot_id %}<a class="published-result" href="{{ root_path }}/datasets/derived/{{ job.dataset.source }}/{{ job.dataset.dataset }}/{{ job.output_version }}">View registered output</a>{% endif %}
         <details class="job-inputs"><summary>Build inputs and recipe</summary><ul>{% for input in job.inputs %}<li><strong>{{ input.slot }}</strong> <code>{{ input.reference.kind.value }} · {{ input.reference.snapshot_id }}</code></li>{% endfor %}</ul><small>Recipe revision <code>{{ job.recipe_revision }}</code></small></details>
     </div>
     <div class="job-meta">

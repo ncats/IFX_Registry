@@ -26,7 +26,7 @@
                     <div class="lineage-group-heading">
                         <span class="kind-badge kind-{{ group.kind.value }}">{{ group.kind.value|title }}</span>
                         {% if group.overview_available %}
-                        <a class="lineage-dataset-link" href="/datasets/{{ group.kind.value }}/{{ group.dataset.source }}/{{ group.dataset.dataset }}" aria-label="View {{ group.dataset.source|sourcename }} {{ group.dataset.dataset|datasetname }} dataset"{% if group_is_current %} aria-current="page"{% endif %}><strong>{{ group.dataset.source|sourcename }}</strong><span>{{ group.dataset.dataset|datasetname }}</span></a>
+                        <a class="lineage-dataset-link" href="{{ root_path }}/datasets/{{ group.kind.value }}/{{ group.dataset.source }}/{{ group.dataset.dataset }}" aria-label="View {{ group.dataset.source|sourcename }} {{ group.dataset.dataset|datasetname }} dataset"{% if group_is_current %} aria-current="page"{% endif %}><strong>{{ group.dataset.source|sourcename }}</strong><span>{{ group.dataset.dataset|datasetname }}</span></a>
                         {% else %}<span class="lineage-dataset-link"><strong>{{ group.dataset.source|sourcename }}</strong><span>{{ group.dataset.dataset|datasetname }}</span></span>{% endif %}
                         <code>{{ group.dataset }}</code>
                     </div>
@@ -39,7 +39,7 @@
                                  data-lineage-dependencies="{% for dependency in node.dependencies %}{{ dependency.key.kind.value }}|{{ dependency.key.dataset.source }}|{{ dependency.key.dataset.dataset }}|{{ dependency.key.version }}{% if not loop.last %},{% endif %}{% endfor %}"
                                  {% if is_focus %}data-lineage-current aria-current="true"{% endif %}>
                             <div class="lineage-version-main">
-                                {% if node.is_missing %}<strong><code>{{ node.key.version }}</code></strong>{% else %}<a href="/datasets/{{ node.key.kind.value }}/{{ node.key.dataset.source }}/{{ node.key.dataset.dataset }}/{{ node.key.version }}" aria-label="View exact version {{ node.key.version }} of {{ node.key.dataset.source|sourcename }} {{ node.key.dataset.dataset|datasetname }}"{% if lineage_page == "version" and is_focus %} aria-current="page"{% endif %}><code>{{ node.key.version }}</code></a>{% endif %}
+                                {% if node.is_missing %}<strong><code>{{ node.key.version }}</code></strong>{% else %}<a href="{{ root_path }}/datasets/{{ node.key.kind.value }}/{{ node.key.dataset.source }}/{{ node.key.dataset.dataset }}/{{ node.key.version }}" aria-label="View exact version {{ node.key.version }} of {{ node.key.dataset.source|sourcename }} {{ node.key.dataset.dataset|datasetname }}"{% if lineage_page == "version" and is_focus %} aria-current="page"{% endif %}><code>{{ node.key.version }}</code></a>{% endif %}
                                 {% if is_focus %}<span class="current-node-label">{% if lineage_page == "overview" %}Selected version{% else %}Current details{% endif %}</span>{% endif %}
                             </div>
                             <div class="lineage-version-meta">
@@ -63,8 +63,8 @@
                             {% if node.dependencies or node.used_by %}
                             <details class="lineage-mobile-links">
                                 <summary>Connections</summary>
-                                {% if node.dependencies %}<div><strong>Inputs</strong><ul>{% for dependency in node.dependencies %}<li>{% if dependency.exists %}<a href="/datasets/{{ dependency.key.kind.value }}/{{ dependency.key.dataset.source }}/{{ dependency.key.dataset.dataset }}/{{ dependency.key.version }}">{{ dependency.key.snapshot_id }}</a>{% else %}{{ dependency.key.snapshot_id }} <small>missing</small>{% endif %}</li>{% endfor %}</ul></div>{% endif %}
-                                {% if node.used_by %}<div><strong>Outputs</strong><ul>{% for dependent in node.used_by %}<li>{% if dependent.exists %}<a href="/datasets/{{ dependent.key.kind.value }}/{{ dependent.key.dataset.source }}/{{ dependent.key.dataset.dataset }}/{{ dependent.key.version }}">{{ dependent.key.snapshot_id }}</a>{% else %}{{ dependent.key.snapshot_id }} <small>missing</small>{% endif %}</li>{% endfor %}</ul></div>{% endif %}
+                                {% if node.dependencies %}<div><strong>Inputs</strong><ul>{% for dependency in node.dependencies %}<li>{% if dependency.exists %}<a href="{{ root_path }}/datasets/{{ dependency.key.kind.value }}/{{ dependency.key.dataset.source }}/{{ dependency.key.dataset.dataset }}/{{ dependency.key.version }}">{{ dependency.key.snapshot_id }}</a>{% else %}{{ dependency.key.snapshot_id }} <small>missing</small>{% endif %}</li>{% endfor %}</ul></div>{% endif %}
+                                {% if node.used_by %}<div><strong>Outputs</strong><ul>{% for dependent in node.used_by %}<li>{% if dependent.exists %}<a href="{{ root_path }}/datasets/{{ dependent.key.kind.value }}/{{ dependent.key.dataset.source }}/{{ dependent.key.dataset.dataset }}/{{ dependent.key.version }}">{{ dependent.key.snapshot_id }}</a>{% else %}{{ dependent.key.snapshot_id }} <small>missing</small>{% endif %}</li>{% endfor %}</ul></div>{% endif %}
                             </details>
                             {% endif %}
                             <span class="visually-hidden">{% if node.dependencies %}Built from {% for dependency in node.dependencies %}{{ dependency.key.snapshot_id }}{% if not loop.last %}, {% endif %}{% endfor %}. {% endif %}{% if node.used_by %}Used by {% for dependent in node.used_by %}{{ dependent.key.snapshot_id }}{% if not loop.last %}, {% endif %}{% endfor %}.{% endif %}</span>

@@ -1,6 +1,6 @@
 <article class="job-card status-{{ job.status.value }}"
          id="job-{{ job.job_id }}"
-         {% if not job.status.is_terminal %}data-job-poll="/jobs/{{ job.job_id }}"{% endif %}>
+         {% if not job.status.is_terminal %}data-job-poll="{{ root_path }}/jobs/{{ job.job_id }}"{% endif %}>
     <div class="job-status-icon" aria-hidden="true"></div>
     <div class="job-main">
         <div class="job-heading">
@@ -9,7 +9,7 @@
         </div>
         <p>{{ job.message }}</p>
         {% if job.error %}<div class="job-error">{{ job.error }}</div>{% endif %}
-        {% if job.snapshot_id %}<a class="published-result" href="/datasets/source/{{ job.dataset.source }}/{{ job.dataset.dataset }}/{{ job.expected_version }}">View registered dataset</a>{% endif %}
+        {% if job.snapshot_id %}<a class="published-result" href="{{ root_path }}/datasets/source/{{ job.dataset.source }}/{{ job.dataset.dataset }}/{{ job.expected_version }}">View registered dataset</a>{% endif %}
     </div>
     <div class="job-meta">
         <span>Release {{ job.expected_version }}</span>

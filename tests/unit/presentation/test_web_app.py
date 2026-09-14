@@ -167,12 +167,16 @@ def test_web_entrypoint_preserves_version_check_ttl(
         captured["settings"] = settings
         return object()
 
-    def capture_run(application: object, *, host: str, port: int) -> None:
+    def capture_run(
+        application: object, *, host: str, port: int, root_path: str
+    ) -> None:
         captured["application"] = application
         captured["host"] = host
         captured["port"] = port
+        captured["root_path"] = root_path
 
     monkeypatch.setenv("IFX_REGISTRY_VERSION_CHECK_TTL_SECONDS", "12345")
+    monkeypatch.setenv("IFX_REGISTRY_ROOT_PATH", "/registry/")
     monkeypatch.setattr(sys, "argv", ["ifx-registry-web"])
     monkeypatch.setattr(web_app_module, "create_app", capture_app)
     monkeypatch.setattr("ifx_registry.presentation.web.app.uvicorn.run", capture_run)
@@ -182,6 +186,8 @@ def test_web_entrypoint_preserves_version_check_ttl(
     settings = captured["settings"]
     assert isinstance(settings, WebSettings)
     assert settings.version_check_ttl_seconds == 12345
+    assert settings.root_path == "/registry"
+    assert captured["root_path"] == "/registry"
 
 
 def test_display_time_uses_configured_timezone() -> None:
@@ -195,6 +201,11 @@ def test_display_time_uses_configured_timezone() -> None:
 def test_web_settings_reject_unknown_display_timezone(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="unknown display timezone"):
         WebSettings(tmp_path, display_timezone="Not/A_Timezone")
+
+
+def test_web_settings_reject_root_path_without_leading_slash(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="root path"):
+        WebSettings(tmp_path, root_path="registry")
 
 
 def _services(
@@ -315,6 +326,33 @@ async def test_catalog_separates_configured_sources_from_registered_datasets(
     assert 'href="/operations"' not in response.text
     assert 'id="registration-panel"' in response.text
     assert 'id="catalog-job-list"' in response.text
+
+
+@pytest.mark.anyio
+async def test_catalog_urls_include_configured_root_path(tmp_path: Path) -> None:
+    app = create_app(
+        WebSettings(tmp_path, root_path="/registry"),
+        _services(tmp_path),
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+        ) as client:
+            response = await client.get("/")
+            redirect = await client.get("/operations", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert 'href="http://test/registry/static/registry.css"' in response.text
+    assert 'src="http://test/registry/static/registry.js"' in response.text
+    assert 'href="/registry/"' in response.text
+    assert (
+        'action="/registry/sources/example/records/check"'
+        in response.text
+    )
+    assert redirect.headers["location"] == "/registry/"
 
 
 @pytest.mark.anyio
