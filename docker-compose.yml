@@ -7,7 +7,7 @@ services:
     init: true
     restart: unless-stopped
     ports:
-      - "${IFX_REGISTRY_WEB_PORT:-8000}:8000"
+      - "${IFX_REGISTRY_WEB_PORT:-8049}:8000"
     environment:
       - IFX_REGISTRY_STATE_DIR=/var/lib/ifx-registry
       - IFX_REGISTRY_BUCKET=${IFX_REGISTRY_BUCKET:-aws-ifx-registry}
