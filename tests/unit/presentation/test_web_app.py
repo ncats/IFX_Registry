@@ -345,8 +345,8 @@ async def test_catalog_urls_include_configured_root_path(tmp_path: Path) -> None
             redirect = await client.get("/operations", follow_redirects=False)
 
     assert response.status_code == 200
-    assert 'href="http://test/registry/static/registry.css"' in response.text
-    assert 'src="http://test/registry/static/registry.js"' in response.text
+    assert 'href="/registry/static/registry.css"' in response.text
+    assert 'src="/registry/static/registry.js"' in response.text
     assert 'href="/registry/"' in response.text
     assert (
         'action="/registry/sources/example/records/check"'
