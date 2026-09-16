@@ -15,7 +15,16 @@ from ifx_registry.infrastructure.sources.api_exports import (
     LinkedOmicsGenesSource,
     ResoluteGenesSource,
 )
+from ifx_registry.infrastructure.sources.babel import (
+    build_babel_gene_source,
+    build_babel_protein_source,
+)
 from ifx_registry.infrastructure.sources.chebi import CHEBI_FILES, ChebiFullOntologySource
+from ifx_registry.infrastructure.sources.ensembl import (
+    ENSEMBL_EXPORTS,
+    EnsemblHumanBioMartSource,
+)
+from ifx_registry.infrastructure.sources.hgnc import HgncCompleteSetSource
 from ifx_registry.infrastructure.sources.inspected_files import (
     INSPECTED_FILE_SOURCES,
     InspectedFileSource,
@@ -26,6 +35,11 @@ from ifx_registry.infrastructure.sources.last_modified import (
     LastModifiedHttpSource,
     LastModifiedSourceDefinition,
 )
+from ifx_registry.infrastructure.sources.ncbi import NcbiHumanGeneInfoSource
+from ifx_registry.infrastructure.sources.ncbi_gene_mappings import (
+    NCBI_GENE_MAPPING_FILES,
+    NcbiGeneIdentifierMappingsSource,
+)
 from ifx_registry.infrastructure.sources.reactome import (
     REACTOME_FILES,
     ReactomePathwaysSource,
@@ -35,7 +49,15 @@ from ifx_registry.infrastructure.sources.release_sources import (
     ReleaseHttpSource,
     ReleaseSourceDefinition,
 )
-from ifx_registry.infrastructure.sources.uniprot import UNIPROT_FILES, UniProtHumanSource
+from ifx_registry.infrastructure.sources.uniprot import (
+    UNIPROT_FILES,
+    UniProtHumanIdMappingSource,
+    UniProtHumanReferenceProteomeSource,
+    UniProtHumanSource,
+)
+from ifx_registry.infrastructure.sources.uniprot_isoforms import (
+    UniProtHumanIsoformsSource,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +101,42 @@ class BuiltInSourceFactory:
                 "uniprot_human": SourceFactoryDefinition(
                     UniProtHumanSource,
                     expected_file_count=len(UNIPROT_FILES),
+                ),
+                "uniprot_human_reference_proteome": SourceFactoryDefinition(
+                    UniProtHumanReferenceProteomeSource,
+                    expected_file_count=1,
+                ),
+                "uniprot_human_idmapping": SourceFactoryDefinition(
+                    UniProtHumanIdMappingSource,
+                    expected_file_count=1,
+                ),
+                "uniprot_human_isoforms": SourceFactoryDefinition(
+                    UniProtHumanIsoformsSource,
+                    expected_file_count=2,
+                ),
+                "ensembl_human_biomart": SourceFactoryDefinition(
+                    EnsemblHumanBioMartSource,
+                    expected_file_count=len(ENSEMBL_EXPORTS),
+                ),
+                "hgnc_complete_set": SourceFactoryDefinition(
+                    HgncCompleteSetSource,
+                    expected_file_count=1,
+                ),
+                "ncbi_human_gene_info": SourceFactoryDefinition(
+                    NcbiHumanGeneInfoSource,
+                    expected_file_count=1,
+                ),
+                "ncbi_gene_identifier_mappings": SourceFactoryDefinition(
+                    NcbiGeneIdentifierMappingsSource,
+                    expected_file_count=len(NCBI_GENE_MAPPING_FILES),
+                ),
+                "babel_human_gene_compendium": SourceFactoryDefinition(
+                    build_babel_gene_source,
+                    expected_file_count=1,
+                ),
+                "babel_human_protein_compendium": SourceFactoryDefinition(
+                    build_babel_protein_source,
+                    expected_file_count=1,
                 ),
                 "chebi_full_ontology": SourceFactoryDefinition(
                     ChebiFullOntologySource,

@@ -29,7 +29,7 @@ from ifx_registry.domain.models import (
 
 _OUTPUT_FILE = "protein_patent_family_mentions.parquet"
 _RECIPE_DIGEST = hashlib.sha256(
-    b"ifx-registry:surechembl-patent-family-mentions:v1"
+    b"ifx-registry:surechembl-patent-family-mentions:v2"
 ).hexdigest()
 _UNIPROT_ACCESSION_RE = re.compile(
     r"^(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9][A-Z][A-Z0-9]{2}[0-9])"
@@ -47,7 +47,7 @@ class SurechemblPatentFamilyMentionsRecipe(DerivedRecipe):
                 "Aggregates SureChEMBL protein mentions into reusable patent-family "
                 "sets from one exact Patent Discovery snapshot."
             ),
-            revision="1",
+            revision="2",
             inputs=(
                 RecipeInputSlot(
                     "patent_discovery",
@@ -64,7 +64,7 @@ class SurechemblPatentFamilyMentionsRecipe(DerivedRecipe):
             ),
             transform={
                 "name": "surechembl_patent_family_mentions",
-                "version": 1,
+                "version": 2,
                 "min_publication_year": 1950,
                 "max_publication_year": "input_snapshot_year",
             },
@@ -85,7 +85,9 @@ class SurechemblPatentFamilyMentionsRecipe(DerivedRecipe):
         max_year = int(version[:4])
         source_dir = _required_directory(source)
         progress.report(ProgressUpdate("building", "Loading protein entity identifiers"))
-        entity_targets = _load_entity_targets(source_dir / "biomedical_entities.parquet")
+        entity_targets, entity_type_column = _load_entity_targets(
+            source_dir / "biomedical_entities.parquet"
+        )
         if not entity_targets:
             raise InvalidDerivedBuildError(
                 "SureChEMBL input contains no supported protein entity identifiers"
@@ -137,6 +139,7 @@ class SurechemblPatentFamilyMentionsRecipe(DerivedRecipe):
                 "patent_metadata_count": len(patent_metadata),
                 "min_publication_year": 1950,
                 "max_publication_year": max_year,
+                "entity_type_column": entity_type_column,
             },
         )
 
@@ -170,13 +173,24 @@ def _normalize_resolved_form(value: object) -> tuple[str, str] | None:
     return None
 
 
-def _load_entity_targets(path: Path) -> dict[int, tuple[str, str]]:
+def _load_entity_targets(path: Path) -> tuple[dict[int, tuple[str, str]], str]:
     targets: dict[int, tuple[str, str]] = {}
     parquet = pq.ParquetFile(path)
-    for batch in parquet.iter_batches(columns=["id", "entity_type_id", "resolved_form"]):
+    columns = set(parquet.schema_arrow.names)
+    entity_type_column = next(
+        (name for name in ("type_id", "entity_type_id") if name in columns),
+        None,
+    )
+    if entity_type_column is None:
+        available = ", ".join(sorted(columns)) or "none"
+        raise InvalidDerivedBuildError(
+            "SureChEMBL biomedical_entities.parquet must contain type_id "
+            f"(current) or entity_type_id (legacy); available columns: {available}"
+        )
+    for batch in parquet.iter_batches(columns=["id", entity_type_column, "resolved_form"]):
         for entity_id, entity_type_id, resolved_form in zip(
             batch.column("id").to_pylist(),
-            batch.column("entity_type_id").to_pylist(),
+            batch.column(entity_type_column).to_pylist(),
             batch.column("resolved_form").to_pylist(),
             strict=True,
         ):
@@ -185,7 +199,7 @@ def _load_entity_targets(path: Path) -> dict[int, tuple[str, str]]:
             normalized = _normalize_resolved_form(resolved_form)
             if normalized is not None:
                 targets[int(entity_id)] = normalized
-    return targets
+    return targets, entity_type_column
 
 
 def _location_batches(path: Path) -> Iterator[Any]:

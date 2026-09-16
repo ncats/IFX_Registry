@@ -4,24 +4,30 @@ from datetime import date
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from ifx_registry.application.derived_build_models import MaterializedRecipeInput
 from ifx_registry.application.progress import NullProgressReporter
 from ifx_registry.domain.catalog import RegisteredSnapshotRef
+from ifx_registry.domain.errors import InvalidDerivedBuildError
 from ifx_registry.domain.models import SnapshotRef
 from ifx_registry.infrastructure.recipes.surechembl import (
     SurechemblPatentFamilyMentionsRecipe,
+    _load_entity_targets,
 )
 
 
-def test_recipe_aggregates_exact_source_into_patent_family_sets(tmp_path) -> None:
+@pytest.mark.parametrize("entity_type_column", ["type_id", "entity_type_id"])
+def test_recipe_aggregates_exact_source_into_patent_family_sets(
+    tmp_path, entity_type_column: str
+) -> None:
     input_dir = tmp_path / "input"
     input_dir.mkdir()
     pq.write_table(
         pa.table(
             {
                 "id": [1, 2],
-                "entity_type_id": [1, 1],
+                entity_type_column: [1, 1],
                 "resolved_form": ["P12345", "HGNC:7"],
             }
         ),
@@ -70,4 +76,25 @@ def test_recipe_aggregates_exact_source_into_patent_family_sets(tmp_path) -> Non
         "patent_metadata_count": 2,
         "min_publication_year": 1950,
         "max_publication_year": 2026,
+        "entity_type_column": entity_type_column,
     }
+
+
+def test_recipe_rejects_unknown_entity_type_column(tmp_path) -> None:
+    path = tmp_path / "biomedical_entities.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "id": [1],
+                "unexpected_type": [1],
+                "resolved_form": ["P12345"],
+            }
+        ),
+        path,
+    )
+
+    with pytest.raises(
+        InvalidDerivedBuildError,
+        match=r"must contain type_id \(current\) or entity_type_id \(legacy\)",
+    ):
+        _load_entity_targets(path)

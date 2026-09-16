@@ -143,9 +143,21 @@ installed recipes build:
   RefMet versions;
 - `pubchem:compound_records` from an exact CID-set version plus live, recorded
   PubChem PUG REST observations;
-- `pubchem:cid_molecular_info` from exact compound records; and
+- `pubchem:cid_molecular_info` from exact compound records;
+- `ncbi:human_gene_identifier_mappings` from an exact NCBI Gene identifier
+  mapping snapshot, filtered to human records;
+- `ensembl:uniprot_isoform_xrefs` from exact Ensembl BioMart and UniProt
+  release inputs;
+- `uniprot:uniref100_memberships` from an exact pre-UniRef target protein-ID
+  handoff plus a matching UniProt release; and
 - `surechembl:protein_patent_family_mentions` from an exact SureChEMBL patent
   discovery snapshot.
+
+The built-in Targets source catalog also includes focused human snapshots for
+the UniProt reference proteome, UniProt ID mappings, UniProt isoforms, and the
+Babel Gene and Protein compendia. The Babel acquisitions stream upstream
+chunks through temporary storage and retain only human records, avoiding a
+second permanent copy of the very large global compendia.
 
 The reusable ChEBI preparation is the remaining legacy recipe to migrate.
 

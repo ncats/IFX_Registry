@@ -15,6 +15,41 @@ sources:
       Complete and reviewed human protein records with a consistency check
       between both files.
 
+  - adapter: uniprot_human_reference_proteome
+    enabled: true
+    display_name: UniProt Human Reference Proteome
+    description: >-
+      Complete JSON records for reference proteome UP000005640, matching the
+      established Targets harmonization input contract.
+
+  - adapter: uniprot_human_idmapping
+    enabled: true
+    display_name: UniProt Human ID Mapping
+    description: >-
+      Human UniProt accession mappings to external identifier databases from
+      the current UniProt release.
+
+  - adapter: uniprot_human_isoforms
+    enabled: true
+    display_name: UniProt Human Isoforms
+    description: >-
+      Canonical and computationally mapped human isoform exports generated from
+      one verified UniProt SPARQL release.
+
+  - adapter: ensembl_human_biomart
+    enabled: true
+    display_name: Ensembl Human BioMart
+    description: >-
+      Release-coherent human gene, transcript, protein, RefSeq, UniProt, and
+      coordinate exports used by harmonizers and identifier resolvers.
+
+  - adapter: hgnc_complete_set
+    enabled: true
+    display_name: HGNC Complete Gene Set
+    description: >-
+      Human gene names, symbols, identifiers, locations, and cross-references
+      from the HGNC complete gene set.
+
   - adapter: cure_case_reports
     enabled: true
     display_name: CURE ID Case Reports
@@ -70,6 +105,34 @@ sources:
     enabled: true
     display_name: NCBI Gene Summaries
     description: Descriptions and summary text for NCBI Gene records.
+
+  - adapter: ncbi_human_gene_info
+    enabled: true
+    display_name: NCBI Human Gene Information
+    description: >-
+      Core human gene identifiers, symbols, synonyms, cross-references,
+      locations, descriptions, and gene types from NCBI Gene.
+
+  - adapter: ncbi_gene_identifier_mappings
+    enabled: true
+    display_name: NCBI Gene Identifier Mappings
+    description: >-
+      Release-coherent NCBI Gene, RefSeq, Ensembl, and UniProtKB identifier
+      mapping files preserved exactly as published by NCBI.
+
+  - adapter: babel_human_gene_compendium
+    enabled: true
+    display_name: Babel Human Gene Compendium
+    description: >-
+      Human gene identifier cliques selected from one immutable Babel release,
+      with complete upstream chunk fingerprints retained for audit.
+
+  - adapter: babel_human_protein_compendium
+    enabled: true
+    display_name: Babel Human Protein Compendium
+    description: >-
+      Human protein identifier cliques selected from one immutable Babel release,
+      with complete upstream chunk fingerprints retained for audit.
 
   - adapter: jensenlab_tissues
     enabled: true
