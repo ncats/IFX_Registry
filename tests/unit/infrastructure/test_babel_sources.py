@@ -25,6 +25,7 @@ class FakeBabelHttpGateway(HttpGateway):
     def __init__(self) -> None:
         self.text: dict[str, HttpText] = {}
         self.payloads: dict[str, bytes] = {}
+        self.resumable_downloads: list[tuple[str, int]] = []
 
     def get_text(self, url: str, *, timeout: float) -> HttpText:
         del timeout
@@ -52,6 +53,17 @@ class FakeBabelHttpGateway(HttpGateway):
                 },
             ),
         )
+
+    def download_resumable(
+        self,
+        url: str,
+        destination: Path,
+        *,
+        timeout: float,
+        expected_size: int,
+    ) -> DownloadedResource:
+        self.resumable_downloads.append((url, expected_size))
+        return self.download(url, destination, timeout=timeout)
 
 
 def _record(taxa: list[str], identifier: str) -> bytes:
@@ -136,6 +148,9 @@ def test_babel_source_streams_chunks_and_keeps_only_semantic_human_taxa(
         "Gene.txt.01",
     ]
     assert all(item["sha256"] for item in snapshot.metadata["files"])
+    assert gateway.resumable_downloads == [
+        (url, len(payload)) for url, payload in gateway.payloads.items()
+    ]
     assert not list(snapshot.files[0].local_path.parent.glob(".*.download"))
 
 

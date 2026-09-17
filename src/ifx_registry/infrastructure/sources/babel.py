@@ -172,10 +172,11 @@ class BabelHumanCompendiumSource(GeneratedSnapshotSource):
                 chunk_path = destination.with_name(f".{listed.name}.download")
                 chunk_path.unlink(missing_ok=True)
                 try:
-                    resource = self._http.download(
+                    resource = self._http.download_resumable(
                         chunk_url,
                         chunk_path,
                         timeout=request.timeout.total_seconds(),
+                        expected_size=listed.size_bytes,
                     )
                     observed_size = chunk_path.stat().st_size
                     if observed_size != listed.size_bytes:

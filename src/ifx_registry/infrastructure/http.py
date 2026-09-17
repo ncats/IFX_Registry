@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from time import sleep
 from typing import Any
 
 import requests
@@ -70,6 +72,21 @@ class HttpGateway(ABC):
     def download(self, url: str, destination: Path, *, timeout: float) -> DownloadedResource:
         """Stream a resource to an exact destination path."""
 
+    def download_resumable(
+        self,
+        url: str,
+        destination: Path,
+        *,
+        timeout: float,
+        expected_size: int,
+    ) -> DownloadedResource:
+        """Download a declared-size resource, resuming when supported.
+
+        Gateways without range support retain the ordinary atomic-download
+        behavior. Sources must opt into resumability explicitly.
+        """
+        return self.download(url, destination, timeout=timeout)
+
     def get_json(
         self,
         url: str,
@@ -107,14 +124,22 @@ class RequestsHttpGateway(HttpGateway):
         *,
         chunk_size: int = 1024 * 1024,
         user_agent: str = DEFAULT_USER_AGENT,
+        resumable_attempts: int = 5,
+        resumable_retry_delay_seconds: float = 2.0,
     ):
         if chunk_size <= 0:
             raise ValueError("chunk_size must be positive")
         if not user_agent.strip():
             raise ValueError("user_agent must not be blank")
+        if resumable_attempts < 1:
+            raise ValueError("resumable_attempts must be positive")
+        if resumable_retry_delay_seconds < 0:
+            raise ValueError("resumable_retry_delay_seconds must not be negative")
         self._session = session or requests.Session()
         self._session.headers["User-Agent"] = user_agent
         self._chunk_size = chunk_size
+        self._resumable_attempts = resumable_attempts
+        self._resumable_retry_delay_seconds = resumable_retry_delay_seconds
 
     def get_text(self, url: str, *, timeout: float) -> HttpText:
         try:
@@ -146,6 +171,99 @@ class RequestsHttpGateway(HttpGateway):
         except (OSError, requests.RequestException) as error:
             partial_path.unlink(missing_ok=True)
             raise SourceAcquisitionError(f"Could not download {url}: {error}") from error
+
+    def download_resumable(
+        self,
+        url: str,
+        destination: Path,
+        *,
+        timeout: float,
+        expected_size: int,
+    ) -> DownloadedResource:
+        """Retry one large download and resume a verified partial response."""
+        if expected_size <= 0:
+            raise ValueError("expected_size must be positive")
+        destination = Path(destination)
+        partial_path = destination.with_name(f"{destination.name}.part")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        validator: str | None = None
+        last_error: BaseException | None = None
+
+        for attempt in range(1, self._resumable_attempts + 1):
+            offset = partial_path.stat().st_size if partial_path.is_file() else 0
+            if offset and validator is None:
+                # A partial inherited from outside this active call has no
+                # trustworthy identity. Restart it instead of appending.
+                partial_path.unlink(missing_ok=True)
+                offset = 0
+            headers: dict[str, str] = {}
+            if offset:
+                assert validator is not None
+                headers["Range"] = f"bytes={offset}-"
+                headers["If-Range"] = validator
+            try:
+                with self._session.get(
+                    url,
+                    timeout=timeout,
+                    stream=True,
+                    headers=headers or None,
+                ) as response:
+                    response.raise_for_status()
+                    metadata = self._metadata(response)
+                    response_validator = _resume_validator(metadata)
+                    append = offset > 0 and response.status_code == 206
+                    if append:
+                        try:
+                            _validate_content_range(
+                                metadata.header("Content-Range"),
+                                offset=offset,
+                                expected_size=expected_size,
+                            )
+                            if response_validator != validator:
+                                raise SourceAcquisitionError(
+                                    f"Resume validator changed while downloading {url}"
+                                )
+                        except SourceAcquisitionError:
+                            partial_path.unlink(missing_ok=True)
+                            validator = None
+                            raise
+                    else:
+                        offset = 0
+                        partial_path.unlink(missing_ok=True)
+                    validator = response_validator
+                    mode = "ab" if append else "wb"
+                    with partial_path.open(mode) as handle:
+                        for chunk in response.iter_content(chunk_size=self._chunk_size):
+                            if chunk:
+                                handle.write(chunk)
+
+                observed_size = partial_path.stat().st_size
+                if observed_size != expected_size:
+                    raise SourceAcquisitionError(
+                        f"Incomplete download from {url}: received {observed_size} of "
+                        f"{expected_size} bytes"
+                    )
+                partial_path.replace(destination)
+                return DownloadedResource(destination, metadata)
+            except requests.HTTPError as error:
+                last_error = error
+                status = error.response.status_code if error.response is not None else None
+                if status not in {408, 429} and (status is None or status < 500):
+                    partial_path.unlink(missing_ok=True)
+                    raise SourceAcquisitionError(
+                        f"Could not download {url}: {error}"
+                    ) from error
+            except (OSError, requests.RequestException, SourceAcquisitionError) as error:
+                last_error = error
+
+            if attempt < self._resumable_attempts:
+                sleep(self._resumable_retry_delay_seconds * 2 ** (attempt - 1))
+
+        partial_path.unlink(missing_ok=True)
+        raise SourceAcquisitionError(
+            f"Could not download {url} after {self._resumable_attempts} attempts: "
+            f"{last_error}"
+        ) from last_error
 
     def get_json(
         self,
@@ -233,3 +351,30 @@ class RequestsHttpGateway(HttpGateway):
             raise SourceAcquisitionError(f"Downloaded empty response from {url}")
         partial_path.replace(destination)
         return DownloadedResource(destination, metadata)
+
+
+def _resume_validator(metadata: HttpMetadata) -> str | None:
+    etag = metadata.header("ETag")
+    if etag and not etag.strip().startswith("W/"):
+        return etag
+    return metadata.header("Last-Modified")
+
+
+def _validate_content_range(
+    value: str | None,
+    *,
+    offset: int,
+    expected_size: int,
+) -> None:
+    if not value:
+        raise SourceAcquisitionError("Resumed response omitted Content-Range")
+    match = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+)", value.strip())
+    if (
+        match is None
+        or int(match.group(1)) != offset
+        or int(match.group(3)) != expected_size
+        or int(match.group(2)) < offset
+    ):
+        raise SourceAcquisitionError(
+            f"Resumed response has invalid Content-Range {value!r}"
+        )

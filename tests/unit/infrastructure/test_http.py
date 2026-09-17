@@ -21,13 +21,18 @@ class FakeResponse:
         *,
         status_error: Exception | None = None,
         json_payload: Any = None,
+        status_code: int = 200,
+        headers: dict[str, str] | None = None,
+        stream_error: Exception | None = None,
     ):
         self.url = "https://cdn.example.org/data.tsv"
-        self.headers = {"Content-Type": "text/tab-separated-values"}
+        self.headers = headers or {"Content-Type": "text/tab-separated-values"}
+        self.status_code = status_code
         self.text = "release-1"
         self._chunks = chunks
         self._status_error = status_error
         self._json_payload = json_payload
+        self._stream_error = stream_error
 
     def raise_for_status(self) -> None:
         if self._status_error:
@@ -35,7 +40,9 @@ class FakeResponse:
 
     def iter_content(self, *, chunk_size: int) -> Iterator[bytes]:
         assert chunk_size == 4
-        return iter(self._chunks)
+        yield from self._chunks
+        if self._stream_error:
+            raise self._stream_error
 
     def json(self) -> Any:
         return self._json_payload
@@ -53,22 +60,22 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self, response: FakeResponse):
-        self.response = response
+    def __init__(self, response: FakeResponse | list[FakeResponse]):
+        self.responses = response if isinstance(response, list) else [response]
         self.headers: dict[str, str] = {}
         self.last_get: tuple[str, dict[str, Any]] | None = None
         self.last_post: tuple[str, dict[str, Any]] | None = None
 
     def get(self, url: str, **kwargs: Any) -> FakeResponse:
         self.last_get = (url, kwargs)
-        return self.response
+        return self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
 
     def head(self, url: str, **kwargs: Any) -> FakeResponse:
-        return self.response
+        return self.responses[0]
 
     def post(self, url: str, **kwargs: Any) -> FakeResponse:
         self.last_post = (url, kwargs)
-        return self.response
+        return self.responses[0]
 
 
 def _gateway(response: FakeResponse) -> RequestsHttpGateway:
@@ -114,6 +121,103 @@ def test_download_wraps_http_errors(tmp_path: Path) -> None:
             tmp_path / "data.tsv",
             timeout=10,
         )
+
+
+def test_resumable_download_continues_verified_partial(tmp_path: Path) -> None:
+    interrupted = FakeResponse(
+        [b"abcd"],
+        headers={"ETag": '"stable"', "Content-Length": "8"},
+        stream_error=requests.exceptions.ChunkedEncodingError("disconnected"),
+    )
+    resumed = FakeResponse(
+        [b"efgh"],
+        status_code=206,
+        headers={
+            "ETag": '"stable"',
+            "Content-Range": "bytes 4-7/8",
+            "Content-Length": "4",
+        },
+    )
+    session = FakeSession([interrupted, resumed])
+    gateway = RequestsHttpGateway(
+        cast(requests.Session, session),
+        chunk_size=4,
+        resumable_retry_delay_seconds=0,
+    )
+    destination = tmp_path / "large.data"
+
+    result = gateway.download_resumable(
+        "https://example.org/large.data",
+        destination,
+        timeout=10,
+        expected_size=8,
+    )
+
+    assert result.path.read_bytes() == b"abcdefgh"
+    assert session.last_get is not None
+    assert session.last_get[1]["headers"] == {
+        "Range": "bytes=4-",
+        "If-Range": '"stable"',
+    }
+    assert not destination.with_name("large.data.part").exists()
+
+
+def test_resumable_download_restarts_when_server_ignores_range(tmp_path: Path) -> None:
+    interrupted = FakeResponse(
+        [b"abcd"],
+        headers={"ETag": '"stable"'},
+        stream_error=requests.exceptions.ChunkedEncodingError("disconnected"),
+    )
+    restarted = FakeResponse(
+        [b"abcdefgh"],
+        status_code=200,
+        headers={"ETag": '"changed"', "Content-Length": "8"},
+    )
+    session = FakeSession([interrupted, restarted])
+    gateway = RequestsHttpGateway(
+        cast(requests.Session, session),
+        chunk_size=4,
+        resumable_retry_delay_seconds=0,
+    )
+    destination = tmp_path / "large.data"
+
+    gateway.download_resumable(
+        "https://example.org/large.data",
+        destination,
+        timeout=10,
+        expected_size=8,
+    )
+
+    assert destination.read_bytes() == b"abcdefgh"
+
+
+def test_resumable_download_discards_orphaned_partial_from_previous_call(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "large.data"
+    destination.with_name("large.data.part").write_bytes(b"stale")
+    response = FakeResponse(
+        [b"fresh-data"],
+        headers={"ETag": '"current"', "Content-Length": "10"},
+    )
+    session = FakeSession(response)
+    gateway = RequestsHttpGateway(
+        cast(requests.Session, session),
+        chunk_size=4,
+        resumable_retry_delay_seconds=0,
+    )
+
+    gateway.download_resumable(
+        "https://example.org/large.data",
+        destination,
+        timeout=10,
+        expected_size=10,
+    )
+
+    assert destination.read_bytes() == b"fresh-data"
+    assert session.last_get is not None
+    assert session.last_get[1]["headers"] is None
+    assert not destination.with_name("large.data.part").exists()
 
 
 def test_gateway_sets_identifiable_user_agent() -> None:
