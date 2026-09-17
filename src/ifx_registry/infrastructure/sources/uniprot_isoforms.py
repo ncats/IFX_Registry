@@ -88,16 +88,6 @@ WHERE {
 ORDER BY ?entry ?sequence
 """.strip()
 
-_COMPUTATIONAL_EXISTS_QUERY = """
-PREFIX up: <http://purl.uniprot.org/core/>
-PREFIX taxon: <http://purl.uniprot.org/taxonomy/>
-ASK {
-  GRAPH <http://sparql.uniprot.org/uniprot> {
-    ?entry a up:Protein ; up:organism taxon:9606 ; up:potentialSequence ?sequence .
-  }
-}
-""".strip()
-
 Clock = Callable[[], datetime]
 Sleeper = Callable[[float], None]
 
@@ -195,7 +185,7 @@ class UniProtHumanIsoformsSource(SourceAdapter):
         snapshot_dir = (
             request.destination / self.dataset.source / self.dataset.dataset / version.value
         )
-        generated: list[tuple[str, str, int, str, bool]] = []
+        generated: list[tuple[str, str, int, str]] = []
         with SnapshotWorkspace(snapshot_dir) as workspace:
             exports = (
                 ("canonical", _CANONICAL_QUERY, UNIPROT_CANONICAL_ISOFORMS_FILE),
@@ -215,24 +205,11 @@ class UniProtHumanIsoformsSource(SourceAdapter):
                     )
                 )
                 response = self._query(query, timeout=self._query_timeout_seconds)
-                empty_confirmed = False
-                if label == "computational" and not _bindings(response.payload):
-                    existence = self._query(
-                        _COMPUTATIONAL_EXISTS_QUERY,
-                        timeout=self._query_timeout_seconds,
-                    )
-                    if _ask_boolean(existence.payload):
-                        raise SourceValidationError(
-                            "UniProt computational isoform export was empty even though "
-                            "an independent existence query found human records"
-                        )
-                    empty_confirmed = True
                 row_count = self._write_isoforms(
                     response.payload,
                     workspace.staging_path / file_name,
                     minimum_rows=self._minimum_rows[label],
                     label=label,
-                    allow_empty=empty_confirmed,
                 )
                 generated.append(
                     (
@@ -240,7 +217,6 @@ class UniProtHumanIsoformsSource(SourceAdapter):
                         response.metadata.final_url,
                         row_count,
                         _digest(query),
-                        empty_confirmed,
                     )
                 )
             confirmed = self.discover_latest(VersionProbeRequest(request.timeout))
@@ -260,7 +236,7 @@ class UniProtHumanIsoformsSource(SourceAdapter):
                     response_url,
                     "text/csv",
                 )
-                for file_name, response_url, _rows, _query_digest, _empty in generated
+                for file_name, response_url, _rows, _query_digest in generated
             ),
             downloaded_at=self._clock(),
             homepage=self.homepage,
@@ -272,9 +248,8 @@ class UniProtHumanIsoformsSource(SourceAdapter):
                     file_name: {
                         "rows": rows,
                         "query_sha256": query_digest,
-                        "empty_confirmed_by_independent_ask": empty_confirmed,
                     }
-                    for file_name, _url, rows, query_digest, empty_confirmed in generated
+                    for file_name, _url, rows, query_digest in generated
                 },
                 "release_confirmed_after_export": confirmed.value,
             },
@@ -319,7 +294,6 @@ class UniProtHumanIsoformsSource(SourceAdapter):
         *,
         minimum_rows: int,
         label: str,
-        allow_empty: bool = False,
     ) -> int:
         rows: list[tuple[str, str, str, str, str]] = []
         for binding in _bindings(payload):
@@ -334,7 +308,7 @@ class UniProtHumanIsoformsSource(SourceAdapter):
                     _binding_value(binding, "isCanonical", required=False) or "0",
                 )
             )
-        if len(rows) < minimum_rows and not (allow_empty and not rows):
+        if len(rows) < minimum_rows:
             raise SourceValidationError(
                 f"UniProt {label} isoform query returned only {len(rows)} records; "
                 f"expected at least {minimum_rows}"
@@ -345,13 +319,6 @@ class UniProtHumanIsoformsSource(SourceAdapter):
             writer.writerow(UNIPROT_ISOFORM_COLUMNS)
             writer.writerows(rows)
         return len(rows)
-
-
-def _ask_boolean(payload: Any) -> bool:
-    if not isinstance(payload, Mapping) or not isinstance(payload.get("boolean"), bool):
-        raise SourceValidationError("UniProt SPARQL ASK response has no boolean result")
-    return bool(payload["boolean"])
-
 
 def _bindings(payload: Any) -> list[Mapping[str, Any]]:
     if not isinstance(payload, Mapping):

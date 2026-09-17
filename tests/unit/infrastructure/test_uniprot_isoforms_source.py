@@ -184,7 +184,7 @@ def test_rejects_implausibly_small_isoform_export(tmp_path: Path) -> None:
         source.fetch(FetchRequest(tmp_path))
 
 
-def test_accepts_empty_computational_export_only_after_independent_ask(
+def test_rejects_empty_computational_export(
     tmp_path: Path,
 ) -> None:
     gateway = FakeSparqlGateway(empty_computational=True)
@@ -195,30 +195,13 @@ def test_accepts_empty_computational_export_only_after_independent_ask(
         minimum_computational_rows=1_000,
     )
 
-    snapshot = source.fetch(FetchRequest(tmp_path))
-
-    computational = snapshot.files[1].local_path
-    with computational.open(newline="", encoding="utf-8") as handle:
-        assert list(csv.DictReader(handle)) == []
-    profile = snapshot.metadata["exports"][UNIPROT_COMPUTATIONAL_ISOFORMS_FILE]
-    assert profile["rows"] == 0
-    assert profile["empty_confirmed_by_independent_ask"] is True
-    assert any("ASK {" in query for query in gateway.query_calls)
-
-
-def test_rejects_empty_computational_export_when_ask_finds_records(
-    tmp_path: Path,
-) -> None:
-    gateway = FakeSparqlGateway(
-        empty_computational=True,
-        computational_exists=True,
-    )
-    source = UniProtHumanIsoformsSource(
-        gateway,
-        sleeper=lambda _: None,
-        minimum_canonical_rows=1,
-        minimum_computational_rows=1_000,
-    )
-
-    with pytest.raises(SourceValidationError, match="existence query found"):
+    with pytest.raises(
+        SourceValidationError,
+        match="computational isoform query returned only 0 records",
+    ):
         source.fetch(FetchRequest(tmp_path))
+
+    dataset_dir = tmp_path / "uniprot" / "human_isoforms"
+    assert not (dataset_dir / "2026_03-export1").exists()
+    assert not list(dataset_dir.glob(".*.part"))
+    assert not any("ASK {" in query for query in gateway.query_calls)
