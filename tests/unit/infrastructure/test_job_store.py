@@ -116,3 +116,22 @@ def test_database_enforces_one_active_job_per_dataset(tmp_path: Path) -> None:
         store.add(AcquisitionJob("job-2", dataset, "2"))
 
     assert store.find_active(dataset) == first
+
+
+def test_dismiss_failures_hides_them_without_deleting_their_records(tmp_path: Path) -> None:
+    store = SQLiteAcquisitionJobStore(tmp_path / "jobs.sqlite3")
+    failed = AcquisitionJob(
+        "failed-job",
+        DatasetId("example", "records"),
+        "1",
+        status=AcquisitionStatus.FAILED,
+        stage="failed",
+        message="Acquisition failed",
+        error="upstream unavailable",
+    )
+    store.add(failed)
+
+    assert store.dismiss_failures() == 1
+    assert store.dismiss_failures() == 0
+    assert store.list_recent() == ()
+    assert store.get(failed.job_id) == failed

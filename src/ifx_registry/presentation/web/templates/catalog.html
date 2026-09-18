@@ -8,7 +8,87 @@
 </header>
 
 <div class="catalog-layout{% if has_activity %} has-activity{% endif %}">
+<aside class="registration-panel" id="registration-panel" aria-labelledby="registration-panel-title" {% if not has_activity %}hidden{% endif %}>
+    <div class="registration-panel-heading">
+        <div>
+            <span class="eyebrow">Activity</span>
+            <h2 id="registration-panel-title">Registry activity</h2>
+        </div>
+        {% if has_failed_activity %}
+        <form method="post" action="{{ root_path }}/activity/errors/clear">
+            <button class="button secondary compact" type="submit">Clear old errors</button>
+        </form>
+        {% endif %}
+    </div>
+    <div id="catalog-job-list" class="job-list" aria-live="polite">
+        {% for job in source_attention_jobs %}
+            {% include "partials/job_card.html" %}
+        {% endfor %}
+        {% for job in derived_attention_jobs %}
+            {% include "partials/derived_build_job.html" %}
+        {% endfor %}
+    </div>
+</aside>
 <div class="catalog-main">
+{% if not catalog_error and available_sources %}
+    <section class="available-sources-section" aria-labelledby="available-sources-title">
+        <div class="section-heading">
+            <div>
+                <h2 id="available-sources-title">Sources available to register</h2>
+                <p>These sources have update tools configured but do not yet have a registered dataset.</p>
+            </div>
+        </div>
+        <div class="source-toolbar">
+            <label class="source-search">
+                <span class="visually-hidden">Search sources available to register</span>
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 21-4.35-4.35m2.1-5.4a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"/></svg>
+                <input id="source-search" type="search" placeholder="Search sources available to register" autocomplete="off">
+            </label>
+            <span id="source-search-count" class="source-count" aria-live="polite">{{ available_sources|length }} sources</span>
+        </div>
+        <div class="source-table-wrap">
+            <table class="source-table" id="available-source-table">
+                <thead><tr><th>Source</th><th>Upstream release</th><th>Files</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+                <tbody>
+                {% for overview in available_sources %}
+                    {% set cached_check = source_check_statuses.get(overview.descriptor.dataset) %}
+                    {% with checked_version=(cached_check.assessment.checked_version if cached_check and cached_check.assessment else none), check_error=(cached_check.latest_attempt.error if cached_check and cached_check.state.value == "check_failed" else none) %}
+                        {% include "partials/source_row.html" %}
+                    {% endwith %}
+                {% endfor %}
+                <tr id="source-search-empty" class="source-search-empty" hidden><td colspan="4">No available sources match that search.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+{% endif %}
+
+{% if not catalog_error and available_recipes %}
+    <section class="available-sources-section" aria-labelledby="available-recipes-title">
+        <div class="section-heading">
+            <div>
+                <h2 id="available-recipes-title">Derived datasets available to build</h2>
+                <p>Reusable Registry recipes whose first version has not been registered yet.</p>
+            </div>
+        </div>
+        <div class="source-table-wrap">
+            <table class="source-table recipe-table">
+                <thead><tr><th>Dataset</th><th>Recipe</th><th>Required inputs</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
+                <tbody>
+                {% for recipe in available_recipes %}
+                    <tr class="source-row">
+                        <td class="source-identity"><strong>{{ recipe.dataset.source|sourcename }}</strong><span class="dataset-name">{{ recipe.dataset.dataset|datasetname }}</span><span class="source-id">{{ recipe.dataset }}</span></td>
+                        <td>{{ recipe.description }}</td>
+                        <td>{{ recipe.inputs|length }} exact registered input{% if recipe.inputs|length != 1 %}s{% endif %}</td>
+                        <td class="catalog-action"><a class="button secondary" href="{{ root_path }}/datasets/derived/{{ recipe.dataset.source }}/{{ recipe.dataset.dataset }}">Build</a></td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+{% endif %}
+
 {% if catalog_error %}
     <section class="catalog-unavailable" role="status" aria-labelledby="catalog-status-title">
         <div class="catalog-status-icon" aria-hidden="true">!</div>
@@ -99,81 +179,6 @@
     <section class="empty-state" role="status">No datasets have been registered yet.</section>
 {% endif %}
 
-{% if not catalog_error and available_sources %}
-    <section class="available-sources-section" aria-labelledby="available-sources-title">
-        <div class="section-heading">
-            <div>
-                <h2 id="available-sources-title">Sources available to register</h2>
-                <p>These sources have update tools configured but do not yet have a registered dataset.</p>
-            </div>
-        </div>
-        <div class="source-toolbar">
-            <label class="source-search">
-                <span class="visually-hidden">Search sources available to register</span>
-                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 21-4.35-4.35m2.1-5.4a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"/></svg>
-                <input id="source-search" type="search" placeholder="Search sources available to register" autocomplete="off">
-            </label>
-            <span id="source-search-count" class="source-count" aria-live="polite">{{ available_sources|length }} sources</span>
-        </div>
-        <div class="source-table-wrap">
-            <table class="source-table" id="available-source-table">
-                <thead><tr><th>Source</th><th>Upstream release</th><th>Files</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
-                <tbody>
-                {% for overview in available_sources %}
-                    {% set cached_check = source_check_statuses.get(overview.descriptor.dataset) %}
-                    {% with checked_version=(cached_check.assessment.checked_version if cached_check and cached_check.assessment else none), check_error=(cached_check.latest_attempt.error if cached_check and cached_check.state.value == "check_failed" else none) %}
-                        {% include "partials/source_row.html" %}
-                    {% endwith %}
-                {% endfor %}
-                <tr id="source-search-empty" class="source-search-empty" hidden><td colspan="4">No available sources match that search.</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </section>
-{% endif %}
-
-{% if not catalog_error and available_recipes %}
-    <section class="available-sources-section" aria-labelledby="available-recipes-title">
-        <div class="section-heading">
-            <div>
-                <h2 id="available-recipes-title">Derived datasets available to build</h2>
-                <p>Reusable Registry recipes whose first version has not been registered yet.</p>
-            </div>
-        </div>
-        <div class="source-table-wrap">
-            <table class="source-table recipe-table">
-                <thead><tr><th>Dataset</th><th>Recipe</th><th>Required inputs</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
-                <tbody>
-                {% for recipe in available_recipes %}
-                    <tr>
-                        <td class="source-identity"><strong>{{ recipe.dataset.source|sourcename }}</strong><span class="dataset-name">{{ recipe.dataset.dataset|datasetname }}</span><span class="source-id">{{ recipe.dataset }}</span></td>
-                        <td>{{ recipe.description }}</td>
-                        <td>{{ recipe.inputs|length }} exact registered input{% if recipe.inputs|length != 1 %}s{% endif %}</td>
-                        <td class="catalog-action"><a class="button secondary" href="{{ root_path }}/datasets/derived/{{ recipe.dataset.source }}/{{ recipe.dataset.dataset }}">Build</a></td>
-                    </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </section>
-{% endif %}
 </div>
-
-<aside class="registration-panel" id="registration-panel" aria-labelledby="registration-panel-title" {% if not has_activity %}hidden{% endif %}>
-    <div class="registration-panel-heading">
-        <div>
-            <span class="eyebrow">Activity</span>
-            <h2 id="registration-panel-title">Registry activity</h2>
-        </div>
-    </div>
-    <div id="catalog-job-list" class="job-list" aria-live="polite">
-        {% for job in source_attention_jobs %}
-            {% include "partials/job_card.html" %}
-        {% endfor %}
-        {% for job in derived_attention_jobs %}
-            {% include "partials/derived_build_job.html" %}
-        {% endfor %}
-    </div>
-</aside>
 </div>
 {% endblock %}

@@ -69,6 +69,10 @@ class DerivedBuildJobStore(ABC):
         """List active jobs plus the latest failed job for each dataset."""
 
     @abstractmethod
+    def dismiss_failures(self) -> int:
+        """Hide failed jobs from operational views while retaining their records."""
+
+    @abstractmethod
     def recover_interrupted(self) -> None:
         """Fail work left active by the single-process executor after restart."""
 

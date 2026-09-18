@@ -36,6 +36,7 @@ from ifx_registry.application.use_cases.build_derived_dataset import (
     StartDerivedBuild,
 )
 from ifx_registry.application.use_cases.check_source_version import CheckSourceVersion
+from ifx_registry.application.use_cases.clear_failed_activity import ClearFailedActivity
 from ifx_registry.application.use_cases.dataset_lineage import GetRegistryDatasetDetails
 from ifx_registry.application.use_cases.derived_build_options import GetDerivedBuildOptions
 from ifx_registry.application.use_cases.derived_build_queries import DerivedBuildQueries
@@ -48,7 +49,7 @@ from ifx_registry.domain.errors import (
     RegistryUnavailableError,
     SourceValidationError,
 )
-from ifx_registry.domain.jobs import AcquisitionJob
+from ifx_registry.domain.jobs import AcquisitionJob, AcquisitionStatus
 from ifx_registry.domain.models import (
     DatasetId,
     DatasetVersion,
@@ -290,6 +291,7 @@ def _services(
             derived,
         ),
         derived_build_queries=DerivedBuildQueries(derived_jobs),
+        clear_failed_activity=ClearFailedActivity(jobs, derived_jobs),
         derived_recipes=recipes,
         list_source_check_statuses=ListSourceCheckStatuses(checks),
         scheduler=scheduler,
@@ -322,6 +324,9 @@ async def test_catalog_separates_configured_sources_from_registered_datasets(
     assert "No datasets have been registered yet" in response.text
     assert "Sources available to register" in response.text
     assert "Example Records" in response.text
+    assert response.text.index("Sources available to register") < response.text.index(
+        "No datasets have been registered yet"
+    )
     assert "Nothing legacy is implied here" not in response.text
     assert 'href="/operations"' not in response.text
     assert 'id="registration-panel"' in response.text
@@ -375,6 +380,47 @@ async def test_operations_redirects_to_catalog(
 
 
 @pytest.mark.anyio
+async def test_catalog_can_clear_old_errors_without_deleting_job_history(
+    tmp_path: Path,
+) -> None:
+    services = _services(tmp_path)
+    jobs = SQLiteAcquisitionJobStore(tmp_path / "registry.sqlite3")
+    failed = AcquisitionJob(
+        "failed-job",
+        DatasetId("example", "records"),
+        "2026-09",
+        status=AcquisitionStatus.FAILED,
+        stage="failed",
+        message="Acquisition failed",
+        error="Example upstream error",
+    )
+    jobs.add(failed)
+    app = create_app(WebSettings(tmp_path), services)
+    transport = httpx.ASGITransport(app=app)
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={"Origin": "http://test"},
+        ) as client:
+            before = await client.get("/")
+            cleared = await client.post(
+                "/activity/errors/clear",
+                follow_redirects=False,
+            )
+            after = await client.get("/")
+
+    assert "Example upstream error" in before.text
+    assert "Clear old errors" in before.text
+    assert cleared.status_code == 303
+    assert cleared.headers["location"] == "/"
+    assert "Example upstream error" not in after.text
+    assert "Clear old errors" not in after.text
+    assert jobs.get(failed.job_id) == failed
+
+
+@pytest.mark.anyio
 async def test_catalog_renders_queued_job_as_waiting_not_refreshable(tmp_path: Path) -> None:
     objects = FakeObjectStore()
     registered_file = tmp_path / "records.tsv"
@@ -414,6 +460,9 @@ async def test_catalog_renders_queued_job_as_waiting_not_refreshable(tmp_path: P
     assert response.status_code == 200
     assert 'aria-label="Waiting to start"' in response.text
     assert "Check for updates" not in response.text
+    assert response.text.index("Registry activity") < response.text.index(
+        "Registered datasets"
+    )
 
 
 @pytest.mark.anyio
@@ -733,6 +782,14 @@ async def test_unregistered_recipe_is_discoverable_and_has_a_build_page(
 
     assert catalog.status_code == 200
     assert "Derived datasets available to build" in catalog.text
+    assert catalog.text.index("Sources available to register") < catalog.text.index(
+        "Derived datasets available to build"
+    )
+    assert catalog.text.index("Derived datasets available to build") < catalog.text.index(
+        "No datasets have been registered yet"
+    )
+    assert '<table class="source-table recipe-table">' in catalog.text
+    assert '<tr class="source-row">' in catalog.text
     assert 'href="/datasets/derived/pubchem/cid_molecular_info"' in catalog.text
     assert recipe_page.status_code == 200
     assert "No registered versions yet" in recipe_page.text

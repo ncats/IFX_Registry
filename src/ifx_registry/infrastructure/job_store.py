@@ -75,7 +75,11 @@ class SQLiteAcquisitionJobStore(AcquisitionJobStore):
             raise ValueError("job list limit must be positive")
         with self._connection() as connection:
             rows = connection.execute(
-                "SELECT * FROM acquisition_jobs ORDER BY created_at DESC LIMIT ?",
+                """
+                SELECT * FROM acquisition_jobs
+                WHERE dismissed_at IS NULL
+                ORDER BY created_at DESC LIMIT ?
+                """,
                 (limit,),
             ).fetchall()
         return tuple(self._from_row(row) for row in rows)
@@ -134,6 +138,18 @@ class SQLiteAcquisitionJobStore(AcquisitionJobStore):
             ).fetchone()
         return self._from_row(row) if row is not None else None
 
+    def dismiss_failures(self) -> int:
+        dismissed_at = datetime.now(UTC).isoformat()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE acquisition_jobs SET dismissed_at = ?
+                WHERE status = ? AND dismissed_at IS NULL
+                """,
+                (dismissed_at, AcquisitionStatus.FAILED.value),
+            )
+        return cursor.rowcount
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database_path, timeout=30)
         connection.row_factory = sqlite3.Row
@@ -169,7 +185,8 @@ class SQLiteAcquisitionJobStore(AcquisitionJobStore):
                     created_at TEXT NOT NULL,
                     started_at TEXT,
                     updated_at TEXT NOT NULL,
-                    completed_at TEXT
+                    completed_at TEXT,
+                    dismissed_at TEXT
                 )
                 """
             )
@@ -186,6 +203,8 @@ class SQLiteAcquisitionJobStore(AcquisitionJobStore):
             }
             if "started_at" not in columns:
                 connection.execute("ALTER TABLE acquisition_jobs ADD COLUMN started_at TEXT")
+            if "dismissed_at" not in columns:
+                connection.execute("ALTER TABLE acquisition_jobs ADD COLUMN dismissed_at TEXT")
 
     def _mark_interrupted_jobs_failed(self) -> None:
         interrupted_at = datetime.now(UTC).isoformat()

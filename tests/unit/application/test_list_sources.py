@@ -63,6 +63,9 @@ class UnavailableJobStore(AcquisitionJobStore):
         del dataset
         self._unavailable()
 
+    def dismiss_failures(self) -> int:
+        self._unavailable()
+
 
 def test_catalog_sources_remain_available_when_job_state_is_unavailable() -> None:
     descriptor = SourceDescriptor(

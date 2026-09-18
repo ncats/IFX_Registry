@@ -117,7 +117,7 @@ class SQLiteDerivedBuildJobStore(DerivedBuildJobStore):
             row = connection.execute(
                 """
                 SELECT * FROM derived_build_jobs
-                WHERE source = ? AND dataset = ?
+                WHERE source = ? AND dataset = ? AND dismissed_at IS NULL
                 ORDER BY created_at DESC LIMIT 1
                 """,
                 (dataset.source, dataset.dataset),
@@ -138,7 +138,11 @@ class SQLiteDerivedBuildJobStore(DerivedBuildJobStore):
     def list_attention(self) -> tuple[DerivedBuildJob, ...]:
         with self._connection() as connection:
             rows = connection.execute(
-                "SELECT * FROM derived_build_jobs ORDER BY created_at DESC",
+                """
+                SELECT * FROM derived_build_jobs
+                WHERE dismissed_at IS NULL
+                ORDER BY created_at DESC
+                """,
             ).fetchall()
         jobs = (self._from_row(row) for row in rows)
         latest_by_dataset: dict[DatasetId, DerivedBuildJob] = {}
@@ -154,6 +158,18 @@ class SQLiteDerivedBuildJobStore(DerivedBuildJobStore):
                 DerivedBuildStatus.FAILED,
             }
         )
+
+    def dismiss_failures(self) -> int:
+        dismissed_at = datetime.now(UTC).isoformat()
+        with self._connection() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE derived_build_jobs SET dismissed_at = ?
+                WHERE status = ? AND dismissed_at IS NULL
+                """,
+                (dismissed_at, DerivedBuildStatus.FAILED.value),
+            )
+        return cursor.rowcount
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -188,7 +204,8 @@ class SQLiteDerivedBuildJobStore(DerivedBuildJobStore):
                     error TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    completed_at TEXT
+                    completed_at TEXT,
+                    dismissed_at TEXT
                 )
                 """
             )
@@ -199,6 +216,12 @@ class SQLiteDerivedBuildJobStore(DerivedBuildJobStore):
                 WHERE status IN ('queued', 'running')
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(derived_build_jobs)")
+            }
+            if "dismissed_at" not in columns:
+                connection.execute("ALTER TABLE derived_build_jobs ADD COLUMN dismissed_at TEXT")
 
     def recover_interrupted(self) -> None:
         interrupted_at = datetime.now(UTC).isoformat()

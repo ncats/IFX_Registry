@@ -49,6 +49,7 @@ from ifx_registry.application.use_cases.build_derived_dataset import (
     StartDerivedBuild,
 )
 from ifx_registry.application.use_cases.check_source_version import CheckSourceVersion
+from ifx_registry.application.use_cases.clear_failed_activity import ClearFailedActivity
 from ifx_registry.application.use_cases.dataset_lineage import GetRegistryDatasetDetails
 from ifx_registry.application.use_cases.derived_build_options import (
     DerivedBuildOptions,
@@ -237,6 +238,7 @@ class WebServices:
     plan_derived_build: PlanDerivedBuild
     start_derived_build: StartDerivedBuild
     derived_build_queries: DerivedBuildQueries
+    clear_failed_activity: ClearFailedActivity
     derived_recipes: DerivedRecipeCatalog
     list_source_check_statuses: ListSourceCheckStatuses
     scheduler: ThreadAcquisitionScheduler
@@ -366,6 +368,7 @@ def build_services(settings: WebSettings) -> WebServices:
             derived,
         ),
         derived_build_queries=DerivedBuildQueries(derived_jobs),
+        clear_failed_activity=ClearFailedActivity(jobs, derived_jobs),
         derived_recipes=recipes,
         list_source_check_statuses=ListSourceCheckStatuses(
             checks,
@@ -550,6 +553,11 @@ def create_app(
             derived_attention_jobs = resolved_services.derived_build_queries.list_attention()
         except OperationalStateUnavailableError:
             derived_attention_jobs = ()
+        has_failed_activity = any(
+            job.status.value == "failed" for job in source_attention_jobs
+        ) or any(
+            job.status.value == "failed" for job in derived_attention_jobs
+        )
         source_check_statuses: dict[DatasetId, SourceCheckStatus] = {}
         if any(overview.operational_state_available for overview in overviews):
             try:
@@ -583,6 +591,7 @@ def create_app(
                 "source_attention_jobs": source_attention_jobs,
                 "derived_attention_jobs": derived_attention_jobs,
                 "has_activity": bool(source_attention_jobs or derived_attention_jobs),
+                "has_failed_activity": has_failed_activity,
                 "source_check_statuses": source_check_statuses,
             },
         )
@@ -967,6 +976,14 @@ def create_app(
 
     @application.get("/operations", response_class=RedirectResponse)
     def operations(request: Request) -> RedirectResponse:
+        return RedirectResponse(
+            url=f"{request.scope.get('root_path', '')}/", status_code=303
+        )
+
+    @application.post("/activity/errors/clear", response_class=RedirectResponse)
+    def clear_activity_errors(request: Request) -> RedirectResponse:
+        require_same_origin(request)
+        resolved_services.clear_failed_activity.execute()
         return RedirectResponse(
             url=f"{request.scope.get('root_path', '')}/", status_code=303
         )

@@ -148,8 +148,8 @@ installed recipes build:
   mapping snapshot, filtered to human records;
 - `ensembl:uniprot_isoform_xrefs` from exact Ensembl BioMart and UniProt
   release inputs;
-- `uniprot:uniref100_memberships` from an exact pre-UniRef target protein-ID
-  handoff plus a matching UniProt release; and
+- `uniprot:uniref100_memberships` as a deterministic projection of the
+  `UniRef100` rows in an exact human UniProt ID-mapping snapshot; and
 - `surechembl:protein_patent_family_mentions` from an exact SureChEMBL patent
   discovery snapshot.
 

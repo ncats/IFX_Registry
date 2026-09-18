@@ -85,3 +85,21 @@ def test_success_hides_an_older_failed_build_from_attention(tmp_path) -> None:
 
     assert store.find_latest(succeeded.dataset) == succeeded
     assert store.list_attention() == ()
+
+
+def test_dismiss_failures_hides_them_without_deleting_their_records(tmp_path) -> None:
+    store = SQLiteDerivedBuildJobStore(tmp_path / "registry.sqlite3")
+    failed = replace(
+        _job(),
+        status=DerivedBuildStatus.FAILED,
+        stage="failed",
+        message="Build failed",
+        error="invalid output",
+    )
+    store.add(failed)
+
+    assert store.dismiss_failures() == 1
+    assert store.dismiss_failures() == 0
+    assert store.find_latest(failed.dataset) is None
+    assert store.list_attention() == ()
+    assert store.get(failed.job_id) == failed

@@ -40,6 +40,10 @@ class AcquisitionJobStore(ABC):
     def find_active(self, dataset: DatasetId) -> AcquisitionJob | None:
         """Return the queued or running acquisition holding a dataset lock."""
 
+    @abstractmethod
+    def dismiss_failures(self) -> int:
+        """Hide failed jobs from operational views while retaining their records."""
+
 
 class AcquisitionScheduler(ABC):
     @abstractmethod
