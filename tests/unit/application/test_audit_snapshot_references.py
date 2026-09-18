@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 from typing import Any, cast
 
 from ifx_registry.application.use_cases.audit_snapshot_references import (
+    AuditCaveatCode,
     AuditDisposition,
     AuditSnapshotReferences,
 )
@@ -45,7 +46,13 @@ def _file() -> PublishedFile:
     )
 
 
-def _source(dataset: DatasetId, version: str, day: int) -> PublishedSnapshot:
+def _source(
+    dataset: DatasetId,
+    version: str,
+    day: int,
+    *,
+    metadata: dict[str, Any] | None = None,
+) -> PublishedSnapshot:
     return PublishedSnapshot(
         dataset,
         SourceVersion(version),
@@ -53,6 +60,7 @@ def _source(dataset: DatasetId, version: str, day: int) -> PublishedSnapshot:
         datetime(2026, 9, day, tzinfo=UTC),
         datetime(2026, 9, day, tzinfo=UTC),
         f"s3://registry/sources/{dataset.source}/{dataset.dataset}/{version}/manifest.yaml",
+        metadata=metadata or {},
         manifest_sha256="b" * 64,
     )
 
@@ -68,7 +76,12 @@ def _registered(reference: SnapshotRef, slot: str) -> RegisteredSnapshotRef:
     )
 
 
-def _descriptor(dataset: DatasetId, input_dataset: DatasetId) -> DerivedRecipeDescriptor:
+def _descriptor(
+    dataset: DatasetId,
+    input_dataset: DatasetId,
+    *,
+    input_kind: SnapshotKind = SnapshotKind.SOURCE,
+) -> DerivedRecipeDescriptor:
     return DerivedRecipeDescriptor(
         dataset,
         "Example output",
@@ -78,7 +91,7 @@ def _descriptor(dataset: DatasetId, input_dataset: DatasetId) -> DerivedRecipeDe
             RecipeInputSlot(
                 "records",
                 "Records",
-                SnapshotKind.SOURCE,
+                input_kind,
                 input_dataset,
             ),
         ),
@@ -217,6 +230,54 @@ def test_unregistered_upstream_source_blocks_derived_rebuild_in_action_order() -
     assert not report.is_current
 
 
+def test_registration_prerequisite_propagates_through_deep_rebuild_chain() -> None:
+    source_id = DatasetId("example", "records")
+    first_id = DatasetId("derived", "first")
+    second_id = DatasetId("derived", "second")
+    third_id = DatasetId("derived", "third")
+    first_descriptor = _descriptor(first_id, source_id)
+    second_descriptor = _descriptor(
+        second_id,
+        first_id,
+        input_kind=SnapshotKind.DERIVED,
+    )
+    third_descriptor = _descriptor(
+        third_id,
+        second_id,
+        input_kind=SnapshotKind.DERIVED,
+    )
+    source = _source(source_id, "1", 1)
+    first = _derived(first_descriptor, SnapshotRef.source("example:records:1"))
+    second = _derived(second_descriptor, SnapshotRef.derived(first.snapshot_id))
+    third = _derived(third_descriptor, SnapshotRef.derived(second.snapshot_id))
+
+    report = AuditSnapshotReferences(
+        cast(
+            BrowseRegistryCatalog,
+            Browse(
+                (
+                    _source_dataset(source),
+                    _derived_dataset(first),
+                    _derived_dataset(second),
+                    _derived_dataset(third),
+                )
+            ),
+        ),
+        cast(Any, Check({source_id: "2"})),
+        cast(Any, Recipes(first_descriptor, second_descriptor, third_descriptor)),
+    ).execute((SnapshotRef.derived(third.snapshot_id),))
+
+    source_result, first_result, second_result, third_result = report.entries
+    assert source_result.disposition is AuditDisposition.REGISTER_SOURCE
+    assert first_result.reason.startswith("After registering example:records:2")
+    assert second_result.reason.startswith(f"After rebuilding {first.snapshot_id}")
+    assert third_result.reason.startswith(f"After rebuilding {second.snapshot_id}")
+    assert all(
+        item.disposition is AuditDisposition.BLOCKED
+        for item in (first_result, second_result, third_result)
+    )
+
+
 def test_recipe_revision_drift_requires_rebuild_even_with_current_inputs() -> None:
     source_id = DatasetId("example", "records")
     output_id = DatasetId("derived", "output")
@@ -282,6 +343,114 @@ def test_manual_source_and_caller_derived_are_unverifiable_results_not_exception
         AuditDisposition.UNVERIFIABLE,
     ]
     assert not report.is_complete
+
+
+def test_managed_derived_can_be_current_with_a_manual_source_caveat() -> None:
+    source_id = DatasetId("manual", "records")
+    output_id = DatasetId("derived", "output")
+    source = _source(
+        source_id,
+        "1",
+        1,
+        metadata={"version_method": {"type": "manual_provider_release"}},
+    )
+    descriptor = _descriptor(output_id, source_id)
+    derived = _derived(descriptor, SnapshotRef.source("manual:records:1"))
+    root = SnapshotRef.derived(derived.snapshot_id)
+
+    report = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((_source_dataset(source), _derived_dataset(derived)))),
+        cast(Any, Check({source_id: UnknownSourceError("no automatic checker")})),
+        cast(Any, Recipes(descriptor)),
+    ).execute((root,))
+
+    source_result, derived_result = report.entries
+    assert source_result.disposition is AuditDisposition.UNVERIFIABLE
+    assert source_result.caveats[0].code is AuditCaveatCode.MANUAL_FRESHNESS
+    assert derived_result.disposition is AuditDisposition.CURRENT
+    assert derived_result.caveats == source_result.caveats
+    assert derived_result.is_qualified_current
+    assert not derived_result.is_current
+    assert not report.is_current
+    assert not report.is_complete
+
+
+def test_known_input_update_outweighs_a_manual_source_caveat() -> None:
+    manual_id = DatasetId("manual", "records")
+    automatic_id = DatasetId("automatic", "records")
+    output_id = DatasetId("derived", "combined")
+    descriptor = DerivedRecipeDescriptor(
+        output_id,
+        "Combined output",
+        "Derived from manual and automatic records.",
+        "1",
+        (
+            RecipeInputSlot("manual", "Manual records", SnapshotKind.SOURCE, manual_id),
+            RecipeInputSlot(
+                "automatic",
+                "Automatic records",
+                SnapshotKind.SOURCE,
+                automatic_id,
+            ),
+        ),
+        ProducerIdentity("registry", "1", "https://example.org/repo", "c" * 40),
+        {"name": "combined"},
+    )
+    manual = _source(
+        manual_id,
+        "1",
+        1,
+        metadata={"version_method": {"type": "manual_provider_release"}},
+    )
+    automatic_v1 = _source(automatic_id, "1", 1)
+    automatic_v2 = _source(automatic_id, "2", 2)
+    inputs = (
+        _registered(SnapshotRef.source("manual:records:1"), "manual"),
+        _registered(SnapshotRef.source("automatic:records:1"), "automatic"),
+    )
+    derived = PublishedDerivedSnapshot(
+        output_id,
+        managed_recipe_version(descriptor, inputs),
+        (_file(),),
+        inputs,
+        descriptor.producer,
+        descriptor.transform,
+        {},
+        datetime(2026, 9, 10, tzinfo=UTC),
+        "s3://registry/derived/derived/combined/deps-old/manifest.yaml",
+        build_key=None,
+        publication_fingerprint="d" * 64,
+    )
+
+    report = AuditSnapshotReferences(
+        cast(
+            BrowseRegistryCatalog,
+            Browse(
+                (
+                    _source_dataset(manual),
+                    _source_dataset(automatic_v2, automatic_v1),
+                    _derived_dataset(derived),
+                )
+            ),
+        ),
+        cast(
+            Any,
+            Check(
+                {
+                    manual_id: UnknownSourceError("no automatic checker"),
+                    automatic_id: "2",
+                }
+            ),
+        ),
+        cast(Any, Recipes(descriptor)),
+    ).execute((SnapshotRef.derived(derived.snapshot_id),))
+
+    derived_result = report.entries[-1]
+    assert derived_result.disposition is AuditDisposition.REBUILD_DERIVED
+    assert [caveat.origin.snapshot_id for caveat in derived_result.caveats] == [
+        "manual:records:1"
+    ]
+    assert report.actions[-1] is derived_result
 
 
 def test_missing_manual_source_pin_is_blocked_even_when_check_is_unavailable() -> None:

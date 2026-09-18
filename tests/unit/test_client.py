@@ -237,6 +237,7 @@ def test_public_client_builds_manual_source_publication(tmp_path: Path) -> None:
     assert result is sentinel
     assert publisher.snapshot.files[0].source_url is None
     assert publisher.snapshot.metadata["capture_method"] == "provider_export"
+    assert publisher.snapshot.metadata["version_method"] == "manual_provider_export"
     assert output.exists()
 
 

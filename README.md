@@ -145,6 +145,15 @@ dataset. Registration and rebuilding remain explicit operator actions in the
 Registry; an audit never downloads, registers, builds, or changes consumer
 configuration.
 
+Manual source-version methods are retained as typed audit caveats rather than
+being mistaken for automatic freshness checks. Known actions take precedence:
+a managed derived dataset can require a rebuild while also carrying an HMDB or
+other manual-source caveat. When the recipe and every automatically checked
+input are current, `is_qualified_current` distinguishes that state from strict
+`is_current`, which remains false until the manual source is confirmed. Caveats
+retain their originating source reference as they propagate through derived
+lineage.
+
 The common single-pin cases are also one call:
 
 ```python
@@ -195,7 +204,11 @@ published = registry.publish_source(
 
 Registry reads, hashes, and uploads the files but never moves or deletes the
 caller's copies. Repeating the exact publication is safe; changing files or
-metadata under the same pinned ID is rejected.
+metadata under the same pinned ID is rejected. Caller-supplied sources receive
+an explicit `manual_<capture_method>` version method by default, so freshness
+audits request manual confirmation rather than treating the absence of an
+installed checker as an unexplained failure. Callers may supply a more specific
+`metadata.version_method` when they have a documented versioning policy.
 
 ## Build or Register Derived Data
 

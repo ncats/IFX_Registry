@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -19,6 +19,7 @@ from ifx_registry.domain.catalog import (
     PublishedDatasetSnapshot,
     PublishedDerivedSnapshot,
     PublishedExternalDatasetVersion,
+    PublishedSnapshot,
     RegisteredSnapshotRef,
 )
 from ifx_registry.domain.derived_builds import managed_recipe_version
@@ -43,6 +44,21 @@ class AuditDisposition(StrEnum):
     UNVERIFIABLE = "unverifiable"
 
 
+class AuditCaveatCode(StrEnum):
+    """A secondary limitation that does not erase a known primary action."""
+
+    MANUAL_FRESHNESS = "manual_freshness"
+
+
+@dataclass(frozen=True, slots=True)
+class AuditCaveat:
+    """One transitive limitation on a freshness conclusion."""
+
+    origin: SnapshotRef
+    code: AuditCaveatCode
+    message: str
+
+
 @dataclass(frozen=True, slots=True)
 class ReferenceAudit:
     """Caller-oriented freshness result for one exact Registry reference."""
@@ -55,9 +71,15 @@ class ReferenceAudit:
     recommended_reference: SnapshotRef | None = None
     latest_upstream_version: SourceVersion | None = None
     reason: str = ""
+    caveats: tuple[AuditCaveat, ...] = ()
 
     @property
     def is_current(self) -> bool:
+        return self.disposition is AuditDisposition.CURRENT and not self.caveats
+
+    @property
+    def is_qualified_current(self) -> bool:
+        """Whether the artifact is current under every automated policy."""
         return self.disposition is AuditDisposition.CURRENT
 
     @property
@@ -114,6 +136,7 @@ class RegistryAudit:
         return all(
             item.disposition
             not in {AuditDisposition.BLOCKED, AuditDisposition.UNVERIFIABLE}
+            and not item.caveats
             for item in self.entries
         )
 
@@ -219,12 +242,18 @@ class AuditSnapshotReferences:
                             f"version cannot be checked automatically: {checked}"
                         ),
                     )
+                manual_caveat = _manual_freshness_caveat(reference, dataset)
                 return ReferenceAudit(
                     reference,
                     AuditDisposition.UNVERIFIABLE,
                     pin_registered=pin_registered,
                     latest_registered_reference=latest,
-                    reason=f"Automatic upstream check unavailable: {checked}",
+                    reason=(
+                        manual_caveat.message
+                        if manual_caveat is not None
+                        else f"Automatic upstream check unavailable: {checked}"
+                    ),
+                    caveats=(manual_caveat,) if manual_caveat is not None else (),
                 )
             upstream = SnapshotRef(
                 SnapshotKind.SOURCE,
@@ -277,18 +306,7 @@ class AuditSnapshotReferences:
                 )
             dependencies = tuple(item.ref for item in snapshot.inputs)
             dependency_results = tuple(visit(item) for item in dependencies)
-            if any(
-                item.disposition is AuditDisposition.UNVERIFIABLE
-                for item in dependency_results
-            ):
-                return ReferenceAudit(
-                    reference,
-                    AuditDisposition.UNVERIFIABLE,
-                    dependencies,
-                    pin_registered=True,
-                    latest_registered_reference=latest,
-                    reason="At least one dependency cannot be verified",
-                )
+            caveats = _merge_caveats(dependency_results)
             blocking_dispositions = {
                 AuditDisposition.REGISTER_SOURCE,
                 AuditDisposition.REBUILD_DERIVED,
@@ -306,17 +324,34 @@ class AuditSnapshotReferences:
                     ),
                     None,
                 )
+                blocked_reason = cycle or _blocked_derived_reason(dependency_results)
                 return ReferenceAudit(
                     reference,
                     AuditDisposition.BLOCKED,
                     dependencies,
                     pin_registered=True,
                     latest_registered_reference=latest,
-                    reason=cycle
-                    or (
-                        "Update or register the dependency actions listed above, "
-                        "then rebuild this derived dataset"
-                    ),
+                    reason=blocked_reason,
+                    caveats=caveats,
+                )
+            hard_unverifiable = tuple(
+                item
+                for item in dependency_results
+                if item.disposition is AuditDisposition.UNVERIFIABLE
+                and not _has_only_manual_caveats(item)
+            )
+            if hard_unverifiable:
+                origins = ", ".join(
+                    item.reference.snapshot_id for item in hard_unverifiable
+                )
+                return ReferenceAudit(
+                    reference,
+                    AuditDisposition.UNVERIFIABLE,
+                    dependencies,
+                    pin_registered=True,
+                    latest_registered_reference=latest,
+                    reason=f"Dependency freshness cannot be verified: {origins}",
+                    caveats=caveats,
                 )
             descriptor = recipes.get(reference.dataset)
             if descriptor is None:
@@ -330,6 +365,7 @@ class AuditSnapshotReferences:
                         "No installed Registry recipe defines freshness for this "
                         "caller-produced derived dataset"
                     ),
+                    caveats=caveats,
                 )
             target_inputs: list[RegisteredSnapshotRef] = []
             for registered, result in zip(
@@ -377,7 +413,7 @@ class AuditSnapshotReferences:
                         DatasetVersion(expected_version),
                     )
                     expected_result = visit(expected_reference)
-                    if expected_result.is_current:
+                    if expected_result.is_qualified_current:
                         return ReferenceAudit(
                             reference,
                             AuditDisposition.UPDATE_PIN,
@@ -388,6 +424,10 @@ class AuditSnapshotReferences:
                             reason=(
                                 "A registered derived snapshot matches the installed "
                                 "recipe revision and current inputs"
+                            ),
+                            caveats=_merge_caveat_sets(
+                                caveats,
+                                expected_result.caveats,
                             ),
                         )
                 return ReferenceAudit(
@@ -400,14 +440,27 @@ class AuditSnapshotReferences:
                         f"Current registered inputs and the installed recipe revision produce "
                         f"{expected_version}; rebuild this dataset in IFX Registry"
                     ),
+                    caveats=caveats,
                 )
+            if caveats:
+                origins = ", ".join(
+                    caveat.origin.snapshot_id for caveat in caveats
+                )
+                reason = (
+                    "The managed derived snapshot matches the installed recipe and all "
+                    "automatically checked inputs; freshness still depends on manual "
+                    f"confirmation of {origins}"
+                )
+            else:
+                reason = "The managed derived snapshot and its complete lineage are current"
             return ReferenceAudit(
                 reference,
                 AuditDisposition.CURRENT,
                 dependencies,
                 pin_registered=True,
                 latest_registered_reference=latest,
-                reason="The managed derived snapshot and its complete lineage are current",
+                reason=reason,
+                caveats=caveats,
             )
 
         def assess_external(
@@ -476,6 +529,87 @@ def _derived_snapshot(
         ),
         None,
     )
+
+
+def _manual_freshness_caveat(
+    reference: SnapshotRef,
+    dataset: CatalogDataset | None,
+) -> AuditCaveat | None:
+    snapshot = _catalog_version(dataset, reference.version.value)
+    if not isinstance(snapshot, PublishedSnapshot):
+        return None
+    version_method = snapshot.metadata.get("version_method")
+    method_type: object
+    if isinstance(version_method, Mapping):
+        method_type = version_method.get("type")
+    else:
+        method_type = version_method
+    if not isinstance(method_type, str) or not method_type.startswith("manual_"):
+        return None
+    return AuditCaveat(
+        reference,
+        AuditCaveatCode.MANUAL_FRESHNESS,
+        (
+            f"No automatic upstream check is available for {reference.snapshot_id}; "
+            "confirm that this exact manually versioned source is still current"
+        ),
+    )
+
+
+def _has_only_manual_caveats(item: ReferenceAudit) -> bool:
+    return bool(item.caveats) and all(
+        caveat.code is AuditCaveatCode.MANUAL_FRESHNESS
+        for caveat in item.caveats
+    )
+
+
+def _merge_caveats(items: Sequence[ReferenceAudit]) -> tuple[AuditCaveat, ...]:
+    return _merge_caveat_sets(*(item.caveats for item in items))
+
+
+def _merge_caveat_sets(
+    *groups: Sequence[AuditCaveat],
+) -> tuple[AuditCaveat, ...]:
+    return tuple(dict.fromkeys(caveat for group in groups for caveat in group))
+
+
+def _blocked_derived_reason(items: Sequence[ReferenceAudit]) -> str:
+    rebuilds = tuple(
+        item.reference.snapshot_id
+        for item in items
+        if item.disposition is AuditDisposition.REBUILD_DERIVED
+        or (
+            item.disposition is AuditDisposition.BLOCKED
+            and item.reason.startswith(("After rebuilding ", "After registering "))
+        )
+    )
+    if rebuilds:
+        return (
+            f"After rebuilding {', '.join(rebuilds)}, rebuild this derived dataset"
+        )
+    registrations = tuple(
+        _registration_target(item)
+        for item in items
+        if item.disposition is AuditDisposition.REGISTER_SOURCE
+    )
+    if registrations:
+        return (
+            f"After registering {', '.join(registrations)}, rebuild this derived dataset"
+        )
+    blocked = tuple(
+        item.reference.snapshot_id
+        for item in items
+        if item.disposition is AuditDisposition.BLOCKED
+    )
+    return (
+        f"Resolve blocked dependency {', '.join(blocked)}, then rebuild this derived dataset"
+    )
+
+
+def _registration_target(item: ReferenceAudit) -> str:
+    if item.latest_upstream_version is None:
+        return item.reference.snapshot_id
+    return f"{item.reference.dataset}:{item.latest_upstream_version.value}"
 
 
 def _catalog_version(

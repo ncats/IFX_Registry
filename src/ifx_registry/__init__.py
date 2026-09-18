@@ -14,6 +14,8 @@ from ifx_registry.application.ports.source import (
     SourceVersionProbe,
 )
 from ifx_registry.application.use_cases.audit_snapshot_references import (
+    AuditCaveat,
+    AuditCaveatCode,
     AuditDisposition,
     ReferenceAudit,
     RegistryAudit,
@@ -66,6 +68,8 @@ from ifx_registry.domain.models import (
 )
 
 __all__ = [
+    "AuditCaveat",
+    "AuditCaveatCode",
     "AuditDisposition",
     "DatasetId",
     "DatasetDescription",

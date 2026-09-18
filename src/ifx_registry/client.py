@@ -448,6 +448,7 @@ class RegistryClient:
         evidence = _json_mapping(version_evidence or {}, "version_evidence")
         validation_data = _json_mapping(validation or {}, "validation")
         metadata_data = _json_mapping(metadata or {}, "metadata")
+        metadata_data.setdefault("version_method", f"manual_{capture_method}")
         metadata_data.update(
             {"capture_method": capture_method, "validation": validation_data}
         )
