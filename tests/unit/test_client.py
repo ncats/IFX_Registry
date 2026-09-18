@@ -26,6 +26,62 @@ def test_catalog_types_are_available_from_public_package() -> None:
     assert PublishedSnapshot.__name__ == "PublishedSnapshot"
 
 
+def test_audit_client_exposes_advanced_catalog_when_needed() -> None:
+    from ifx_registry import RegistryAuditClient
+
+    expected = (object(),)
+
+    class BrowseSpy:
+        def execute(self):  # type: ignore[no-untyped-def]
+            return expected
+
+    client = RegistryAuditClient(
+        cast(Any, BrowseSpy()),
+        cast(Any, object()),
+        cast(Any, object()),
+    )
+
+    assert cast(Any, client.catalog()) == expected
+
+
+def test_audit_client_source_and_derived_conveniences_use_kind_qualified_roots() -> None:
+    from ifx_registry import (
+        AuditDisposition,
+        ReferenceAudit,
+        RegistryAudit,
+        RegistryAuditClient,
+        SnapshotRef,
+    )
+
+    class AuditSpy:
+        calls = []
+
+        def execute(self, roots, *, timeout):  # type: ignore[no-untyped-def]
+            self.calls.append((tuple(roots), timeout))
+            entries = tuple(
+                ReferenceAudit(root, AuditDisposition.CURRENT, pin_registered=True)
+                for root in roots
+            )
+            return RegistryAudit(tuple(roots), entries, datetime.now(UTC))
+
+    audit = AuditSpy()
+    client = RegistryAuditClient(
+        cast(Any, object()),
+        cast(Any, object()),
+        cast(Any, audit),
+    )
+
+    source = client.assess_source("example:records:1")
+    derived = client.assess_derived("example:output:2")
+
+    assert source.reference == SnapshotRef.source("example:records:1")
+    assert derived.reference == SnapshotRef.derived("example:output:2")
+    assert [call[0] for call in audit.calls] == [
+        (source.reference,),
+        (derived.reference,),
+    ]
+
+
 @pytest.mark.parametrize("value", ["reactome:pathways", "a:b:c:d", "a::1", ""])
 def test_parse_snapshot_id_requires_exact_pin(value: str) -> None:
     with pytest.raises(InvalidSnapshotIdError):

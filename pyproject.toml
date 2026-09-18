@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ifx-registry"
-version = "0.2.0"
+version = "0.3.0"
 description = "Shared source and artifact registry for NCATS IFX projects"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -172,6 +172,34 @@ sources:
         YamlSourceCatalogLoader(BuiltInSourceFactory(UnusedHttpGateway())).load(configuration)
 
 
+def test_composition_can_explicitly_exclude_a_credentialed_adapter(tmp_path: Path) -> None:
+    configuration = tmp_path / "sources.yaml"
+    configuration.write_text(
+        """
+schema_version: 1
+sources:
+  - adapter: cure_case_reports
+    enabled: true
+    display_name: CURE ID Case Reports
+    description: Authorized reports.
+  - adapter: reactome_pathways
+    enabled: true
+    display_name: Reactome
+    description: Pathways.
+""".strip(),
+        encoding="utf-8",
+    )
+
+    catalog = YamlSourceCatalogLoader(BuiltInSourceFactory(UnusedHttpGateway())).load(
+        configuration,
+        excluded_adapters=("cure_case_reports",),
+    )
+
+    assert [item.dataset for item in catalog.list_descriptors()] == [
+        DatasetId("reactome", "pathways")
+    ]
+
+
 def test_configuration_can_disable_a_source_and_control_presentation(tmp_path: Path) -> None:
     configuration = tmp_path / "sources.yaml"
     configuration.write_text(
@@ -245,6 +273,12 @@ sources:
 
     with pytest.raises(SourceConfigurationError, match="unknown adapter"):
         _loader().load(configuration)
+
+    with pytest.raises(SourceConfigurationError, match="unknown adapter"):
+        _loader().load(
+            configuration,
+            excluded_adapters=("some.module.ArbitraryClass",),
+        )
 
 
 @pytest.mark.parametrize(

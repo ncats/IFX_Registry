@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import cast
 
@@ -25,7 +25,12 @@ class YamlSourceCatalogLoader:
     def __init__(self, factory: BuiltInSourceFactory):
         self._factory = factory
 
-    def load(self, path: Path = DEFAULT_SOURCE_CONFIGURATION) -> InMemorySourceCatalog:
+    def load(
+        self,
+        path: Path = DEFAULT_SOURCE_CONFIGURATION,
+        *,
+        excluded_adapters: Collection[str] = (),
+    ) -> InMemorySourceCatalog:
         configuration_path = Path(path)
         root = self._read_root(configuration_path)
         self._reject_unknown_keys(root, _ROOT_KEYS, "source configuration")
@@ -60,6 +65,8 @@ class YamlSourceCatalogLoader:
                 raise SourceConfigurationError(
                     f"{location}: unknown adapter {adapter_name!r}; available adapters: {available}"
                 )
+            if adapter_name in excluded_adapters:
+                continue
 
             enabled = source.get("enabled", True)
             if not isinstance(enabled, bool):

@@ -9,6 +9,7 @@ from typing import Any, cast
 from ifx_registry.application.use_cases.browse_catalog import (
     BrowseRegistryCatalog,
     CatalogKind,
+    DependencyFreshness,
     RebuildStatus,
 )
 from ifx_registry.application.use_cases.dataset_lineage import GetRegistryDatasetDetails
@@ -277,3 +278,18 @@ def test_rebuild_status_propagates_through_latest_derived_inputs() -> None:
         middle_id: RebuildStatus.STALE,
         leaf_id: RebuildStatus.STALE,
     }
+    lineages = {
+        item.dataset: item.latest_lineage
+        for item in catalog
+        if item.kind is CatalogKind.DERIVED
+    }
+    assert lineages[middle_id] is not None
+    assert (
+        lineages[middle_id].dependencies[0].freshness
+        is DependencyFreshness.OLDER_VERSION
+    )
+    assert lineages[leaf_id] is not None
+    assert (
+        lineages[leaf_id].dependencies[0].freshness
+        is DependencyFreshness.LATEST_REGISTERED
+    )

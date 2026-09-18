@@ -109,6 +109,72 @@ registered source snapshots only. Derived datasets use the explicit
 `registry.derived` namespace; the root methods never guess an artifact kind,
 build recipes, or resolve `latest`.
 
+## Audit Versions Before a Build
+
+Install the `sources` extra when a consumer needs read-only freshness audits in
+addition to exact snapshot consumption. Pin the same immutable Registry release
+as the rest of the project:
+
+```text
+ifx-registry[sources] @ git+https://github.com/ncats/IFX_Registry.git@vX.Y.Z
+```
+
+The audit facade accepts exact, kind-qualified roots. It checks every reachable
+source once, follows derived lineage recursively, and returns dependencies
+before the artifacts that consume them:
+
+```python
+from ifx_registry import RegistryAuditClient, SnapshotRef
+
+registry = RegistryAuditClient.connect("aws_ifx_registry.yaml")
+report = registry.audit(
+    [
+        SnapshotRef.source("reactome:pathways:97"),
+        SnapshotRef.derived("pubchem:cid_molecular_info:deps-31c7bedefb74"),
+    ]
+)
+
+for item in report.entries:
+    print(item.reference.snapshot_id, item.disposition.value, item.reason)
+```
+
+`report.is_current` is true only when every reachable artifact is current.
+`report.actions` contains safe next steps such as updating a consumer pin,
+registering a newly detected source version, or rebuilding a managed derived
+dataset. Registration and rebuilding remain explicit operator actions in the
+Registry; an audit never downloads, registers, builds, or changes consumer
+configuration.
+
+The common single-pin cases are also one call:
+
+```python
+source = registry.assess_source("reactome:pathways:97")
+derived = registry.assess_derived(
+    "pubchem:cid_molecular_info:deps-31c7bedefb74"
+)
+
+if source.is_current:
+    print("Reactome is current")
+elif source.recommended_snapshot_id:
+    print(f"Update the pin to {source.recommended_snapshot_id}")
+elif source.registration_required:
+    print(f"Register upstream version {source.latest_upstream_version} first")
+else:
+    print(source.reason)
+```
+
+Each result states whether the exact pin is registered, the latest registered
+reference, any checked upstream version, a recommended replacement when one is
+safe, and a plain-language reason. Expected per-dataset limitations appear as
+`unverifiable` report entries rather than aborting a multi-source survey.
+
+Sources that require separate credentials are catalog-only unless their
+credential file is supplied to `RegistryAuditClient.connect()`. Manual sources
+remain visible and auditable as exact registered inputs, but are marked
+`unverifiable` when no automatic upstream checker defines freshness. This API
+is consumer-neutral: IFX_ODIN can discover roots from graph-build YAML, while
+IFX_Harmonizers can survey the exact inputs to its own workflows.
+
 ## Register a Caller-Supplied Source Dataset
 
 For a manual download or provider export, the caller chooses the exact Registry

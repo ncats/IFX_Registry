@@ -13,11 +13,17 @@ from ifx_registry.application.ports.source import (
     SourceFetcher,
     SourceVersionProbe,
 )
+from ifx_registry.application.use_cases.audit_snapshot_references import (
+    AuditDisposition,
+    ReferenceAudit,
+    RegistryAudit,
+)
 from ifx_registry.application.use_cases.fetch_source import FetchSource
 from ifx_registry.client import (
     DEFAULT_CACHE_DIR,
     DerivedRegistryClient,
     ExternalRegistryClient,
+    RegistryAuditClient,
     RegistryClient,
 )
 from ifx_registry.domain.catalog import (
@@ -60,6 +66,7 @@ from ifx_registry.domain.models import (
 )
 
 __all__ = [
+    "AuditDisposition",
     "DatasetId",
     "DatasetDescription",
     "DatasetVersion",
@@ -85,6 +92,9 @@ __all__ = [
     "PublishedDerivedSnapshot",
     "PublishedExternalDatasetVersion",
     "PublishedSnapshot",
+    "ReferenceAudit",
+    "RegistryAudit",
+    "RegistryAuditClient",
     "RegistryClient",
     "DEFAULT_CACHE_DIR",
     "RegistryError",

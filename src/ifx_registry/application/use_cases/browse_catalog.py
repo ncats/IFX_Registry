@@ -238,6 +238,14 @@ class BrowseRegistryCatalog:
             derived_versions,
             external_versions,
         )
+        indexes = dependency_indexes(
+            source_versions,
+            derived_versions,
+            external_versions,
+        )
+        lineages = tuple(
+            assess_lineage(snapshot, indexes) for snapshot in derived_versions
+        )
         updatable = (
             {item.dataset for item in self._installed_sources.list_descriptors()}
             if self._installed_sources is not None
@@ -252,6 +260,7 @@ class BrowseRegistryCatalog:
             *self.group_versions(
                 CatalogKind.DERIVED,
                 derived_versions,
+                lineages=lineages,
                 rebuild_statuses=rebuild_statuses,
             ),
             *self.group_versions(CatalogKind.EXTERNAL, external_versions),

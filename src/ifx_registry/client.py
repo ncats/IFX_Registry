@@ -6,10 +6,11 @@ import json
 import mimetypes
 import os
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
+from ifx_registry.application.contracts import DEFAULT_SOURCE_TIMEOUT
 from ifx_registry.application.models import (
     DatasetDescription,
     DerivedDatasetDescription,
@@ -17,6 +18,18 @@ from ifx_registry.application.models import (
     ExternalDatasetDescription,
     MaterializedDataset,
 )
+from ifx_registry.application.use_cases.audit_snapshot_references import (
+    AuditSnapshotReferences,
+    ReferenceAudit,
+    RegistryAudit,
+)
+from ifx_registry.application.use_cases.browse_catalog import (
+    BrowsePublishedCatalog,
+    BrowseRegistryCatalog,
+    CatalogDataset,
+    GetPublishedDataset,
+)
+from ifx_registry.application.use_cases.check_source_version import CheckSourceVersion
 from ifx_registry.application.use_cases.derived_datasets import (
     DescribeDerivedDataset,
     MaterializeDerivedDataset,
@@ -33,6 +46,7 @@ from ifx_registry.application.use_cases.materialize_dataset import MaterializeDa
 from ifx_registry.application.use_cases.materialize_file import MaterializeFile
 from ifx_registry.application.use_cases.publish_source_dataset import PublishSourceDataset
 from ifx_registry.domain.errors import (
+    InvalidDatasetIdError,
     InvalidPublicationError,
     InvalidSnapshotIdError,
     RegistryClientConfigurationError,
@@ -57,6 +71,146 @@ from ifx_registry.infrastructure.s3_external_versions import S3ExternalDatasetVe
 from ifx_registry.infrastructure.s3_snapshots import S3PublishedSnapshotRepository
 
 DEFAULT_CACHE_DIR = Path(os.environ.get("IFX_REGISTRY_CACHE_DIR", "/var/tmp/ifx-registry-cache"))
+
+
+class RegistryAuditClient:
+    """Read-only facade for dependency-complete Registry freshness audits."""
+
+    def __init__(
+        self,
+        browse_catalog: BrowseRegistryCatalog,
+        get_published_dataset: GetPublishedDataset,
+        audit_references: AuditSnapshotReferences,
+    ):
+        self._browse_catalog = browse_catalog
+        self._get_published_dataset = get_published_dataset
+        self._audit_references = audit_references
+
+    @classmethod
+    def connect(
+        cls,
+        credentials_file: str | Path | None = None,
+        *,
+        bucket: str | None = None,
+        region: str | None = None,
+        prefix: str = "",
+        source_configuration: str | Path | None = None,
+        cure_credentials_file: str | Path | None = None,
+    ) -> RegistryAuditClient:
+        """Connect to the authoritative catalog and installed source checkers.
+
+        This capability requires the package's ``sources`` optional dependencies.
+        Sources that need credentials are omitted when their credential file is not
+        supplied; their registered snapshots remain visible as catalog-only inputs.
+        """
+
+        from ifx_registry.infrastructure.aws_credentials import load_aws_credentials
+        from ifx_registry.infrastructure.cure_credentials import load_cure_credentials
+        from ifx_registry.infrastructure.derived_recipe_catalog import (
+            InMemoryDerivedRecipeCatalog,
+        )
+        from ifx_registry.infrastructure.http import RequestsHttpGateway
+        from ifx_registry.infrastructure.object_store import Boto3ObjectStore
+        from ifx_registry.infrastructure.recipes import built_in_recipes
+        from ifx_registry.infrastructure.s3_derived_snapshots import (
+            S3DerivedSnapshotRepository,
+        )
+        from ifx_registry.infrastructure.s3_external_versions import (
+            S3ExternalDatasetVersionRepository,
+        )
+        from ifx_registry.infrastructure.s3_snapshots import S3PublishedSnapshotRepository
+        from ifx_registry.infrastructure.source_configuration import (
+            DEFAULT_SOURCE_CONFIGURATION,
+            YamlSourceCatalogLoader,
+        )
+        from ifx_registry.infrastructure.source_factory import BuiltInSourceFactory
+
+        credentials = (
+            load_aws_credentials(Path(credentials_file))
+            if credentials_file is not None
+            else None
+        )
+        objects = Boto3ObjectStore(
+            bucket or (credentials.bucket if credentials else "aws-ifx-registry"),
+            region=region or (credentials.region if credentials else "us-east-1"),
+            endpoint_url=credentials.endpoint_url if credentials else None,
+            role_arn=credentials.role_arn if credentials else None,
+            external_id=credentials.external_id if credentials else None,
+            role_session_name=credentials.session_name if credentials else "ifx-registry",
+            access_key_id=credentials.access_key_id if credentials else None,
+            secret_access_key=credentials.secret_access_key if credentials else None,
+        )
+        cure_api_key = (
+            load_cure_credentials(Path(cure_credentials_file)).api_key
+            if cure_credentials_file is not None
+            else None
+        )
+        factory = BuiltInSourceFactory(
+            RequestsHttpGateway(),
+            cure_api_key=cure_api_key,
+        )
+        sources = YamlSourceCatalogLoader(factory).load(
+            Path(source_configuration or DEFAULT_SOURCE_CONFIGURATION),
+            excluded_adapters=() if cure_api_key is not None else ("cure_case_reports",),
+        )
+        snapshots = S3PublishedSnapshotRepository(objects, prefix=prefix)
+        derived = S3DerivedSnapshotRepository(objects, prefix=prefix)
+        external = S3ExternalDatasetVersionRepository(objects, prefix=prefix)
+        published_catalog = BrowsePublishedCatalog(snapshots, sources)
+        browse_catalog = BrowseRegistryCatalog(snapshots, derived, external, sources)
+        recipes = InMemoryDerivedRecipeCatalog(built_in_recipes())
+        return cls(
+            browse_catalog,
+            GetPublishedDataset(published_catalog),
+            AuditSnapshotReferences(
+                browse_catalog,
+                CheckSourceVersion(sources),
+                recipes,
+            ),
+        )
+
+    def catalog(self) -> tuple[CatalogDataset, ...]:
+        """Return all kind-qualified datasets, including derived lineage status."""
+
+        return self._browse_catalog.execute()
+
+    def describe_latest_source(self, dataset_id: str) -> DatasetDescription:
+        """Describe the most recently registered source snapshot for a dataset."""
+
+        dataset = _parse_dataset_id(dataset_id)
+        return DatasetDescription(self._get_published_dataset.execute(dataset).latest)
+
+    def audit(
+        self,
+        references: Sequence[SnapshotRef],
+        *,
+        timeout: timedelta = DEFAULT_SOURCE_TIMEOUT,
+    ) -> RegistryAudit:
+        """Audit exact roots and return their dependency closure in action order."""
+
+        return self._audit_references.execute(references, timeout=timeout)
+
+    def assess_source(
+        self,
+        snapshot_id: str,
+        *,
+        timeout: timedelta = DEFAULT_SOURCE_TIMEOUT,
+    ) -> ReferenceAudit:
+        """Audit one exact source pin without making the caller build a report."""
+
+        reference = SnapshotRef.source(snapshot_id)
+        return self.audit((reference,), timeout=timeout).for_reference(reference)
+
+    def assess_derived(
+        self,
+        snapshot_id: str,
+        *,
+        timeout: timedelta = DEFAULT_SOURCE_TIMEOUT,
+    ) -> ReferenceAudit:
+        """Audit one exact derived pin and every transitive dependency."""
+
+        reference = SnapshotRef.derived(snapshot_id)
+        return self.audit((reference,), timeout=timeout).for_reference(reference)
 
 
 class RegistryClient:
@@ -363,6 +517,20 @@ def _parse_snapshot_id(snapshot_id: str) -> tuple[DatasetId, str]:
             f"Pinned snapshot must be source:dataset:version, got {snapshot_id!r}"
         ) from error
     return dataset, version
+
+
+def _parse_dataset_id(dataset_id: str) -> DatasetId:
+    parts = dataset_id.split(":")
+    if len(parts) != 2 or any(not part for part in parts):
+        raise InvalidDatasetIdError(
+            f"Dataset must be source:dataset, got {dataset_id!r}"
+        )
+    try:
+        return DatasetId(parts[0], parts[1])
+    except ValueError as error:
+        raise InvalidDatasetIdError(
+            f"Dataset must be source:dataset, got {dataset_id!r}"
+        ) from error
 
 
 class DerivedRegistryClient:
