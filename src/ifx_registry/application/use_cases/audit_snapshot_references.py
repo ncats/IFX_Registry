@@ -680,9 +680,13 @@ def _manual_freshness_caveat(
 
 
 def _has_only_manual_caveats(item: ReferenceAudit) -> bool:
-    return bool(item.caveats) and all(
+    return (
+        item.reference.kind is SnapshotKind.SOURCE
+        and bool(item.caveats)
+        and all(
         caveat.code is AuditCaveatCode.MANUAL_FRESHNESS
         for caveat in item.caveats
+        )
     )
 
 

@@ -568,6 +568,91 @@ def test_known_input_update_outweighs_a_manual_source_caveat() -> None:
     assert report.actions[-1] is derived_result
 
 
+def test_hard_unverifiable_dependency_is_not_masked_by_a_manual_caveat() -> None:
+    manual_id = DatasetId("manual", "records")
+    automatic_id = DatasetId("automatic", "records")
+    output_id = DatasetId("derived", "combined")
+    descriptor = DerivedRecipeDescriptor(
+        output_id,
+        "Combined output",
+        "Derived from manual and automatic records.",
+        "1",
+        (
+            RecipeInputSlot("manual", "Manual records", SnapshotKind.SOURCE, manual_id),
+            RecipeInputSlot(
+                "automatic",
+                "Automatic records",
+                SnapshotKind.SOURCE,
+                automatic_id,
+            ),
+        ),
+        ProducerIdentity("registry", "1", "https://example.org/repo", "c" * 40),
+        {"name": "combined"},
+    )
+    manual = _source(
+        manual_id,
+        "1",
+        1,
+        metadata={"version_method": {"type": "manual_provider_release"}},
+    )
+    automatic = _source(automatic_id, "1", 1)
+    inputs = (
+        _registered(SnapshotRef.source(manual.snapshot_id), "manual"),
+        _registered(SnapshotRef.source(automatic.snapshot_id), "automatic"),
+    )
+    derived = PublishedDerivedSnapshot(
+        output_id,
+        managed_recipe_version(descriptor, inputs),
+        (_file(),),
+        inputs,
+        descriptor.producer,
+        descriptor.transform,
+        {},
+        datetime(2026, 9, 10, tzinfo=UTC),
+        "s3://registry/derived/derived/combined/deps-current/manifest.yaml",
+        build_key=None,
+        publication_fingerprint="d" * 64,
+    )
+    parent_id = DatasetId("derived", "parent")
+    parent_descriptor = _descriptor(
+        parent_id,
+        output_id,
+        input_kind=SnapshotKind.DERIVED,
+    )
+    parent = _derived(parent_descriptor, SnapshotRef.derived(derived.snapshot_id))
+
+    result = AuditSnapshotReferences(
+        cast(
+            BrowseRegistryCatalog,
+            Browse(
+                (
+                    _source_dataset(manual),
+                    _source_dataset(automatic),
+                    _derived_dataset(derived),
+                    _derived_dataset(parent),
+                )
+            ),
+        ),
+        cast(
+            Any,
+            Check(
+                {
+                    manual_id: UnknownSourceError("no automatic checker"),
+                    automatic_id: UnknownSourceError("probe unavailable"),
+                }
+            ),
+        ),
+        cast(Any, Recipes(descriptor, parent_descriptor)),
+    ).execute((SnapshotRef.derived(parent.snapshot_id),)).for_reference(
+        SnapshotRef.derived(parent.snapshot_id)
+    )
+
+    assert result.disposition is AuditDisposition.UNVERIFIABLE
+    assert result.reason == (
+        f"Dependency freshness cannot be verified: {derived.snapshot_id}"
+    )
+
+
 def test_missing_manual_source_pin_is_blocked_even_when_check_is_unavailable() -> None:
     source_id = DatasetId("manual", "records")
     source = _source(source_id, "1", 1)
