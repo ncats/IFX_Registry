@@ -9,6 +9,7 @@ from ifx_registry.application.use_cases.audit_snapshot_references import (
     AuditCaveatCode,
     AuditDisposition,
     AuditSnapshotReferences,
+    SourceFreshnessBasis,
 )
 from ifx_registry.application.use_cases.browse_catalog import (
     BrowseRegistryCatalog,
@@ -52,10 +53,11 @@ def _source(
     day: int,
     *,
     metadata: dict[str, Any] | None = None,
+    evidence: dict[str, Any] | None = None,
 ) -> PublishedSnapshot:
     return PublishedSnapshot(
         dataset,
-        SourceVersion(version),
+        SourceVersion(version, evidence=evidence or {}),
         (_file(),),
         datetime(2026, 9, day, tzinfo=UTC),
         datetime(2026, 9, day, tzinfo=UTC),
@@ -65,7 +67,7 @@ def _source(
     )
 
 
-def _registered(reference: SnapshotRef, slot: str) -> RegisteredSnapshotRef:
+def _registered(reference: SnapshotRef, slot: str | None) -> RegisteredSnapshotRef:
     root = "sources" if reference.kind is SnapshotKind.SOURCE else "derived"
     return RegisteredSnapshotRef(
         reference,
@@ -205,6 +207,119 @@ def test_audit_reads_catalog_once_deduplicates_checks_and_orders_dependencies_fi
     assert report.is_current
     assert report.is_complete
     assert report.observed_at == datetime(2026, 9, 18, tzinfo=UTC)
+
+
+def test_recent_download_date_source_skips_live_check_and_is_current() -> None:
+    source_id = DatasetId("example", "records")
+    source = _source(
+        source_id,
+        "2026-09-12",
+        12,
+        evidence={"type": "zip_inner_file_timestamp"},
+    )
+    check = Check({})
+
+    result = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((_source_dataset(source),))),
+        cast(Any, check),
+        cast(Any, Recipes()),
+        clock=lambda: datetime(2026, 9, 18, tzinfo=UTC),
+    ).execute((SnapshotRef.source(source.snapshot_id),)).entries[0]
+
+    assert result.disposition is AuditDisposition.CURRENT
+    assert result.source_freshness_basis is SourceFreshnessBasis.RECENT_REGISTERED_DOWNLOAD
+    assert result.source_fresh_until == datetime(2026, 9, 19, tzinfo=UTC)
+    assert check.calls == []
+
+
+def test_recent_download_date_source_recommends_newer_registered_pin_without_check() -> None:
+    source_id = DatasetId("example", "records")
+    old = _source(
+        source_id,
+        "2026-09-01",
+        1,
+        evidence={"type": "zip_inner_file_timestamp"},
+    )
+    latest = _source(
+        source_id,
+        "2026-09-12",
+        12,
+        evidence={"type": "zip_inner_file_timestamp"},
+    )
+    check = Check({})
+
+    result = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((_source_dataset(latest, old),))),
+        cast(Any, check),
+        cast(Any, Recipes()),
+        clock=lambda: datetime(2026, 9, 18, tzinfo=UTC),
+    ).execute((SnapshotRef.source(old.snapshot_id),)).entries[0]
+
+    assert result.disposition is AuditDisposition.UPDATE_PIN
+    assert result.recommended_reference == SnapshotRef.source(latest.snapshot_id)
+    assert result.source_freshness_basis is SourceFreshnessBasis.RECENT_REGISTERED_DOWNLOAD
+    assert check.calls == []
+
+
+def test_download_date_source_is_checked_at_the_seven_day_boundary() -> None:
+    source_id = DatasetId("example", "records")
+    source = _source(
+        source_id,
+        "2026-09-11",
+        11,
+        evidence={"type": "zip_inner_file_timestamp"},
+    )
+    check = Check({source_id: "2026-09-11"})
+
+    result = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((_source_dataset(source),))),
+        cast(Any, check),
+        cast(Any, Recipes()),
+        clock=lambda: datetime(2026, 9, 18, tzinfo=UTC),
+    ).execute((SnapshotRef.source(source.snapshot_id),)).entries[0]
+
+    assert result.disposition is AuditDisposition.CURRENT
+    assert result.source_freshness_basis is SourceFreshnessBasis.LIVE_UPSTREAM_CHECK
+    assert check.calls == [source_id]
+
+
+def test_recent_release_version_source_still_uses_live_check() -> None:
+    source_id = DatasetId("example", "records")
+    source = _source(source_id, "97", 12, evidence={"method": "release_page"})
+    check = Check({source_id: "97"})
+
+    AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((_source_dataset(source),))),
+        cast(Any, check),
+        cast(Any, Recipes()),
+        clock=lambda: datetime(2026, 9, 18, tzinfo=UTC),
+    ).execute((SnapshotRef.source(source.snapshot_id),))
+
+    assert check.calls == [source_id]
+
+
+def test_recent_manual_source_with_timestamp_evidence_still_requires_confirmation() -> None:
+    source_id = DatasetId("manual", "records")
+    source = _source(
+        source_id,
+        "2026-09-12",
+        12,
+        metadata={"version_method": {"type": "manual_provider_export"}},
+        evidence={"type": "zip_inner_file_timestamp"},
+    )
+    check = Check({source_id: UnknownSourceError("no automatic checker")})
+
+    result = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((_source_dataset(source),))),
+        cast(Any, check),
+        cast(Any, Recipes()),
+        clock=lambda: datetime(2026, 9, 18, tzinfo=UTC),
+    ).execute((SnapshotRef.source(source.snapshot_id),)).entries[0]
+
+    assert result.disposition is AuditDisposition.UNVERIFIABLE
+    assert result.caveats[0].code is AuditCaveatCode.MANUAL_FRESHNESS
+    assert result.source_freshness_basis is None
+    assert check.calls == [source_id]
 
 
 def test_unregistered_upstream_source_blocks_derived_rebuild_in_action_order() -> None:
@@ -498,6 +613,94 @@ def test_registered_newer_source_makes_managed_derived_rebuild_actionable() -> N
     assert derived_result.disposition is AuditDisposition.REBUILD_DERIVED
     assert derived_result.rebuild_required
     assert report.actions == (source_result, derived_result)
+
+
+def test_legacy_derived_inputs_without_slots_resolve_to_registered_current_output() -> None:
+    source_id = DatasetId("example", "records")
+    output_id = DatasetId("derived", "output")
+    descriptor = _descriptor(output_id, source_id)
+    source_v1 = _source(source_id, "1", 1)
+    source_v2 = _source(source_id, "2", 2)
+    old_inputs = (_registered(SnapshotRef.source(source_v1.snapshot_id), None),)
+    old = PublishedDerivedSnapshot(
+        output_id,
+        managed_recipe_version(descriptor, old_inputs),
+        (_file(),),
+        old_inputs,
+        descriptor.producer,
+        descriptor.transform,
+        {},
+        datetime(2026, 9, 10, tzinfo=UTC),
+        "s3://registry/derived/derived/output/deps-old/manifest.yaml",
+        build_key=None,
+        publication_fingerprint="d" * 64,
+    )
+    current = _derived(descriptor, SnapshotRef.source(source_v2.snapshot_id))
+
+    result = AuditSnapshotReferences(
+        cast(
+            BrowseRegistryCatalog,
+            Browse(
+                (
+                    _source_dataset(source_v2, source_v1),
+                    _derived_dataset(current, old),
+                )
+            ),
+        ),
+        cast(Any, Check({source_id: "2"})),
+        cast(Any, Recipes(descriptor)),
+    ).execute((SnapshotRef.derived(old.snapshot_id),)).for_reference(
+        SnapshotRef.derived(old.snapshot_id)
+    )
+
+    assert result.disposition is AuditDisposition.UPDATE_PIN
+    assert result.recommended_reference == SnapshotRef.derived(current.snapshot_id)
+
+
+def test_legacy_derived_input_with_ambiguous_recipe_slot_is_unverifiable() -> None:
+    source_id = DatasetId("example", "records")
+    output_id = DatasetId("derived", "ambiguous")
+    descriptor = DerivedRecipeDescriptor(
+        output_id,
+        "Ambiguous output",
+        "A recipe with two roles for one source dataset.",
+        "1",
+        (
+            RecipeInputSlot("before", "Before", SnapshotKind.SOURCE, source_id),
+            RecipeInputSlot("after", "After", SnapshotKind.SOURCE, source_id),
+        ),
+        ProducerIdentity("registry", "1", "https://example.org/repo", "c" * 40),
+        {"name": "ambiguous"},
+    )
+    source = _source(source_id, "1", 1)
+    legacy_inputs = (_registered(SnapshotRef.source(source.snapshot_id), None),)
+    legacy = PublishedDerivedSnapshot(
+        output_id,
+        DatasetVersion("legacy"),
+        (_file(),),
+        legacy_inputs,
+        descriptor.producer,
+        descriptor.transform,
+        {},
+        datetime(2026, 9, 10, tzinfo=UTC),
+        "s3://registry/derived/derived/ambiguous/legacy/manifest.yaml",
+        build_key=None,
+        publication_fingerprint="d" * 64,
+    )
+
+    result = AuditSnapshotReferences(
+        cast(
+            BrowseRegistryCatalog,
+            Browse((_source_dataset(source), _derived_dataset(legacy))),
+        ),
+        cast(Any, Check({source_id: "1"})),
+        cast(Any, Recipes(descriptor)),
+    ).execute((SnapshotRef.derived(legacy.snapshot_id),)).for_reference(
+        SnapshotRef.derived(legacy.snapshot_id)
+    )
+
+    assert result.disposition is AuditDisposition.UNVERIFIABLE
+    assert "cannot uniquely identify its role" in result.reason
 
 
 def test_missing_exact_pin_is_distinct_from_an_older_registered_pin() -> None:

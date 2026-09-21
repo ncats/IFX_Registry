@@ -8,6 +8,7 @@ from ifx_registry.application.progress import NullProgressReporter, ProgressRepo
 from ifx_registry.domain.models import SourceVersion
 
 DEFAULT_SOURCE_TIMEOUT = timedelta(seconds=60)
+DEFAULT_SOURCE_CHECK_FRESHNESS = timedelta(days=7)
 
 
 @dataclass(frozen=True, slots=True)

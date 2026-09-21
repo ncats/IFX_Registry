@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
+from ifx_registry.application.contracts import DEFAULT_SOURCE_CHECK_FRESHNESS
 from ifx_registry.application.ports.version_checks import SourceVersionCheckStore
 from ifx_registry.application.use_cases.assess_source_update import (
     AssessSourceUpdate,
@@ -27,7 +28,7 @@ class SourceCheckState(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class VersionCheckPolicy:
-    freshness: timedelta = timedelta(days=7)
+    freshness: timedelta = DEFAULT_SOURCE_CHECK_FRESHNESS
 
     def __post_init__(self) -> None:
         if self.freshness <= timedelta(0):

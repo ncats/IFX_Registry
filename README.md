@@ -145,6 +145,14 @@ dataset. Registration and rebuilding remain explicit operator actions in the
 Registry; an audit never downloads, registers, builds, or changes consumer
 configuration.
 
+For sources whose version is inferred from mutable file timestamp metadata
+(for example, an archive member timestamp or HTTP `Last-Modified`), audits use
+a seven-day stabilization window from the newest registered download. During
+that window they do not probe the upstream provider, avoiding false refreshes
+from a repackaged-but-unchanged archive. An older consumer pin is still
+reported with the newest already-registered replacement. Release-numbered,
+checksum, and manually versioned sources continue to receive live checks.
+
 Manual source-version methods are retained as typed audit caveats rather than
 being mistaken for automatic freshness checks. Known actions take precedence:
 a managed derived dataset can require a rebuild while also carrying an HMDB or

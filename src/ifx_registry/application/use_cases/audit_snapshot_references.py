@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
-from ifx_registry.application.contracts import DEFAULT_SOURCE_TIMEOUT
+from ifx_registry.application.contracts import (
+    DEFAULT_SOURCE_CHECK_FRESHNESS,
+    DEFAULT_SOURCE_TIMEOUT,
+)
 from ifx_registry.application.ports.derived_builds import DerivedRecipeCatalog
 from ifx_registry.application.use_cases.browse_catalog import (
     BrowseRegistryCatalog,
@@ -22,7 +25,10 @@ from ifx_registry.domain.catalog import (
     PublishedSnapshot,
     RegisteredSnapshotRef,
 )
-from ifx_registry.domain.derived_builds import managed_recipe_version
+from ifx_registry.domain.derived_builds import (
+    DerivedRecipeDescriptor,
+    managed_recipe_version,
+)
 from ifx_registry.domain.errors import RegistryError
 from ifx_registry.domain.models import (
     DatasetId,
@@ -50,6 +56,13 @@ class AuditCaveatCode(StrEnum):
     MANUAL_FRESHNESS = "manual_freshness"
 
 
+class SourceFreshnessBasis(StrEnum):
+    """Evidence used to determine a source's freshness."""
+
+    RECENT_REGISTERED_DOWNLOAD = "recent_registered_download"
+    LIVE_UPSTREAM_CHECK = "live_upstream_check"
+
+
 @dataclass(frozen=True, slots=True)
 class AuditCaveat:
     """One transitive limitation on a freshness conclusion."""
@@ -70,6 +83,8 @@ class ReferenceAudit:
     latest_registered_reference: SnapshotRef | None = None
     recommended_reference: SnapshotRef | None = None
     latest_upstream_version: SourceVersion | None = None
+    source_freshness_basis: SourceFreshnessBasis | None = None
+    source_fresh_until: datetime | None = None
     reason: str = ""
     caveats: tuple[AuditCaveat, ...] = ()
 
@@ -160,11 +175,15 @@ class AuditSnapshotReferences:
         check_source: CheckSourceVersion,
         recipes: DerivedRecipeCatalog,
         *,
+        source_check_freshness: timedelta = DEFAULT_SOURCE_CHECK_FRESHNESS,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
-    ):
+    ) -> None:
+        if source_check_freshness <= timedelta(0):
+            raise ValueError("source-check freshness must be positive")
         self._browse_catalog = browse_catalog
         self._check_source = check_source
         self._recipes = recipes
+        self._source_check_freshness = source_check_freshness
         self._clock = clock
 
     def execute(
@@ -181,6 +200,7 @@ class AuditSnapshotReferences:
             for descriptor in self._recipes.list_descriptors()
         }
         source_checks: dict[DatasetId, SourceVersion | RegistryError] = {}
+        observed_at = self._clock()
         results: dict[SnapshotRef, ReferenceAudit] = {}
         ordered: list[ReferenceAudit] = []
         active: list[SnapshotRef] = []
@@ -220,6 +240,48 @@ class AuditSnapshotReferences:
             latest = _latest_reference(reference.kind, dataset)
             registered_versions = _registered_versions(dataset)
             pin_registered = reference.version.value in registered_versions
+            latest_snapshot = _latest_source_snapshot(dataset)
+            if latest_snapshot is not None and _uses_download_date_version(latest_snapshot):
+                fresh_until = latest_snapshot.downloaded_at + self._source_check_freshness
+                if latest_snapshot.downloaded_at <= observed_at and observed_at < fresh_until:
+                    latest_reference = SnapshotRef(
+                        SnapshotKind.SOURCE,
+                        latest_snapshot.dataset,
+                        DatasetVersion(
+                            latest_snapshot.version.value,
+                            latest_snapshot.version.version_date,
+                        ),
+                    )
+                    if reference.version.value != latest_snapshot.version.value:
+                        return ReferenceAudit(
+                            reference,
+                            AuditDisposition.UPDATE_PIN,
+                            pin_registered=pin_registered,
+                            latest_registered_reference=latest_reference,
+                            recommended_reference=latest_reference,
+                            source_freshness_basis=(
+                                SourceFreshnessBasis.RECENT_REGISTERED_DOWNLOAD
+                            ),
+                            source_fresh_until=fresh_until,
+                            reason=(
+                                "Use the newest registered source snapshot; upstream "
+                                f"checking is deferred until {fresh_until.isoformat()}"
+                            ),
+                        )
+                    return ReferenceAudit(
+                        reference,
+                        AuditDisposition.CURRENT,
+                        pin_registered=True,
+                        latest_registered_reference=latest_reference,
+                        source_freshness_basis=(
+                            SourceFreshnessBasis.RECENT_REGISTERED_DOWNLOAD
+                        ),
+                        source_fresh_until=fresh_until,
+                        reason=(
+                            "The exact pin is the newest registered source snapshot; "
+                            f"upstream checking is deferred until {fresh_until.isoformat()}"
+                        ),
+                    )
             checked = source_checks.get(reference.dataset)
             if checked is None:
                 try:
@@ -267,6 +329,7 @@ class AuditSnapshotReferences:
                     pin_registered=pin_registered,
                     latest_registered_reference=latest,
                     latest_upstream_version=checked,
+                    source_freshness_basis=SourceFreshnessBasis.LIVE_UPSTREAM_CHECK,
                     reason=(
                         f"Upstream version {checked.value} is not registered; "
                         "register it in IFX Registry before changing the consumer pin"
@@ -280,6 +343,7 @@ class AuditSnapshotReferences:
                     latest_registered_reference=latest,
                     recommended_reference=upstream,
                     latest_upstream_version=checked,
+                    source_freshness_basis=SourceFreshnessBasis.LIVE_UPSTREAM_CHECK,
                     reason=f"Use the checked and registered upstream version {checked.value}",
                 )
             return ReferenceAudit(
@@ -288,6 +352,7 @@ class AuditSnapshotReferences:
                 pin_registered=pin_registered,
                 latest_registered_reference=latest,
                 latest_upstream_version=checked,
+                source_freshness_basis=SourceFreshnessBasis.LIVE_UPSTREAM_CHECK,
                 reason="The exact pin is registered and matches the checked upstream version",
             )
 
@@ -393,12 +458,27 @@ class AuditSnapshotReferences:
                             f"{target_reference.snapshot_id}"
                         ),
                     )
+                slot = registered.slot or _recipe_slot_name(descriptor, target_reference)
+                if slot is None:
+                    return ReferenceAudit(
+                        reference,
+                        AuditDisposition.UNVERIFIABLE,
+                        dependencies,
+                        pin_registered=True,
+                        latest_registered_reference=latest,
+                        reason=(
+                            "A legacy derived input has no recorded slot, and the "
+                            "installed recipe cannot uniquely identify its role: "
+                            f"{target_reference.snapshot_id}"
+                        ),
+                        caveats=caveats,
+                    )
                 target_inputs.append(
                     RegisteredSnapshotRef(
                         target_reference,
                         target_snapshot.manifest_uri,
                         target_snapshot.manifest_sha256,
-                        registered.slot,
+                        slot,
                     )
                 )
             expected_version = managed_recipe_version(
@@ -489,7 +569,7 @@ class AuditSnapshotReferences:
 
         for root in normalized_roots:
             visit(root)
-        return RegistryAudit(normalized_roots, tuple(ordered), self._clock())
+        return RegistryAudit(normalized_roots, tuple(ordered), observed_at)
 
 
 def _catalog_kind(kind: SnapshotKind) -> CatalogKind:
@@ -529,6 +609,49 @@ def _derived_snapshot(
         ),
         None,
     )
+
+
+def _latest_source_snapshot(
+    dataset: CatalogDataset | None,
+) -> PublishedSnapshot | None:
+    if dataset is None:
+        return None
+    latest = dataset.latest
+    return latest if isinstance(latest, PublishedSnapshot) else None
+
+
+def _uses_download_date_version(snapshot: PublishedSnapshot) -> bool:
+    """Whether upstream freshness is inferred from mutable file timestamps.
+
+    Release, checksum, and manually assigned versions are always probed.  The
+    short deferral only protects sources whose version derives from file or
+    archive timestamp metadata, which can change when an unchanged archive is
+    repackaged.
+    """
+    version_method = snapshot.metadata.get("version_method")
+    if isinstance(version_method, Mapping):
+        version_method = version_method.get("type")
+    if isinstance(version_method, str) and version_method.startswith("manual_"):
+        return False
+    evidence = snapshot.version.evidence
+    method_type = evidence.get("type")
+    if method_type in {"last_modified", "zip_inner_file_timestamp"}:
+        return True
+    method = evidence.get("method")
+    return isinstance(method, str) and method.endswith("_last_modified")
+
+
+def _recipe_slot_name(
+    descriptor: DerivedRecipeDescriptor,
+    reference: SnapshotRef,
+) -> str | None:
+    """Supply a named slot for legacy manifests that did not persist one."""
+    matches = tuple(
+        slot.name
+        for slot in descriptor.inputs
+        if slot.kind is reference.kind and slot.dataset == reference.dataset
+    )
+    return matches[0] if len(matches) == 1 else None
 
 
 def _manual_freshness_caveat(

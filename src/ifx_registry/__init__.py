@@ -1,6 +1,10 @@
 """Public API for IFX Registry."""
 
-from ifx_registry.application.contracts import FetchRequest, VersionProbeRequest
+from ifx_registry.application.contracts import (
+    DEFAULT_SOURCE_CHECK_FRESHNESS,
+    FetchRequest,
+    VersionProbeRequest,
+)
 from ifx_registry.application.models import (
     DatasetDescription,
     DerivedDatasetDescription,
@@ -19,6 +23,7 @@ from ifx_registry.application.use_cases.audit_snapshot_references import (
     AuditDisposition,
     ReferenceAudit,
     RegistryAudit,
+    SourceFreshnessBasis,
 )
 from ifx_registry.application.use_cases.fetch_source import FetchSource
 from ifx_registry.client import (
@@ -71,6 +76,7 @@ __all__ = [
     "AuditCaveat",
     "AuditCaveatCode",
     "AuditDisposition",
+    "SourceFreshnessBasis",
     "DatasetId",
     "DatasetDescription",
     "DatasetVersion",
@@ -101,6 +107,7 @@ __all__ = [
     "RegistryAuditClient",
     "RegistryClient",
     "DEFAULT_CACHE_DIR",
+    "DEFAULT_SOURCE_CHECK_FRESHNESS",
     "RegistryError",
     "RegistryClientConfigurationError",
     "RegistryUnavailableError",

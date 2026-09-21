@@ -10,7 +10,10 @@ from datetime import date, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
-from ifx_registry.application.contracts import DEFAULT_SOURCE_TIMEOUT
+from ifx_registry.application.contracts import (
+    DEFAULT_SOURCE_CHECK_FRESHNESS,
+    DEFAULT_SOURCE_TIMEOUT,
+)
 from ifx_registry.application.models import (
     DatasetDescription,
     DerivedDatasetDescription,
@@ -96,6 +99,7 @@ class RegistryAuditClient:
         prefix: str = "",
         source_configuration: str | Path | None = None,
         cure_credentials_file: str | Path | None = None,
+        source_check_freshness: timedelta = DEFAULT_SOURCE_CHECK_FRESHNESS,
     ) -> RegistryAuditClient:
         """Connect to the authoritative catalog and installed source checkers.
 
@@ -166,6 +170,7 @@ class RegistryAuditClient:
                 browse_catalog,
                 CheckSourceVersion(sources),
                 recipes,
+                source_check_freshness=source_check_freshness,
             ),
         )
 
