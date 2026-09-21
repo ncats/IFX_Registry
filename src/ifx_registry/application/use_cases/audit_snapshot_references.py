@@ -54,6 +54,7 @@ class AuditCaveatCode(StrEnum):
     """A secondary limitation that does not erase a known primary action."""
 
     MANUAL_FRESHNESS = "manual_freshness"
+    UPSTREAM_CHECK_UNVERIFIED = "upstream_check_unverified"
 
 
 class SourceFreshnessBasis(StrEnum):
@@ -305,17 +306,39 @@ class AuditSnapshotReferences:
                         ),
                     )
                 manual_caveat = _manual_freshness_caveat(reference, dataset)
+                if manual_caveat is not None:
+                    return ReferenceAudit(
+                        reference,
+                        AuditDisposition.UNVERIFIABLE,
+                        pin_registered=pin_registered,
+                        latest_registered_reference=latest,
+                        reason=manual_caveat.message,
+                        caveats=(manual_caveat,),
+                    )
+                check_caveat = _upstream_check_caveat(reference, checked)
+                if latest is not None and reference.version.value != latest.version.value:
+                    return ReferenceAudit(
+                        reference,
+                        AuditDisposition.UPDATE_PIN,
+                        pin_registered=pin_registered,
+                        latest_registered_reference=latest,
+                        recommended_reference=latest,
+                        reason=(
+                            "Use the newest registered source snapshot; live upstream "
+                            "freshness could not be verified"
+                        ),
+                        caveats=(check_caveat,),
+                    )
                 return ReferenceAudit(
                     reference,
-                    AuditDisposition.UNVERIFIABLE,
+                    AuditDisposition.CURRENT,
                     pin_registered=pin_registered,
                     latest_registered_reference=latest,
                     reason=(
-                        manual_caveat.message
-                        if manual_caveat is not None
-                        else f"Automatic upstream check unavailable: {checked}"
+                        "The exact pin is registered; live upstream freshness could not "
+                        "be verified"
                     ),
-                    caveats=(manual_caveat,) if manual_caveat is not None else (),
+                    caveats=(check_caveat,),
                 )
             upstream = SnapshotRef(
                 SnapshotKind.SOURCE,
@@ -526,11 +549,21 @@ class AuditSnapshotReferences:
                 origins = ", ".join(
                     caveat.origin.snapshot_id for caveat in caveats
                 )
-                reason = (
-                    "The managed derived snapshot matches the installed recipe and all "
-                    "automatically checked inputs; freshness still depends on manual "
-                    f"confirmation of {origins}"
-                )
+                if all(
+                    caveat.code is AuditCaveatCode.MANUAL_FRESHNESS
+                    for caveat in caveats
+                ):
+                    reason = (
+                        "The managed derived snapshot matches the installed recipe and all "
+                        "automatically checked inputs; freshness still depends on manual "
+                        f"confirmation of {origins}"
+                    )
+                else:
+                    reason = (
+                        "The managed derived snapshot matches the installed recipe and "
+                        "newest registered inputs; live upstream freshness could not be "
+                        f"verified for {origins}"
+                    )
             else:
                 reason = "The managed derived snapshot and its complete lineage are current"
             return ReferenceAudit(
@@ -675,6 +708,20 @@ def _manual_freshness_caveat(
         (
             f"No automatic upstream check is available for {reference.snapshot_id}; "
             "confirm that this exact manually versioned source is still current"
+        ),
+    )
+
+
+def _upstream_check_caveat(
+    reference: SnapshotRef,
+    error: RegistryError,
+) -> AuditCaveat:
+    return AuditCaveat(
+        reference,
+        AuditCaveatCode.UPSTREAM_CHECK_UNVERIFIED,
+        (
+            f"Live upstream freshness could not be verified for {reference.snapshot_id}: "
+            f"{error}"
         ),
     )
 

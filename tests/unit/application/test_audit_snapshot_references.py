@@ -326,7 +326,12 @@ def test_unregistered_upstream_source_blocks_derived_rebuild_in_action_order() -
     source_id = DatasetId("example", "records")
     output_id = DatasetId("derived", "output")
     descriptor = _descriptor(output_id, source_id)
-    source = _source(source_id, "1", 1)
+    source = _source(
+        source_id,
+        "1",
+        1,
+        metadata={"version_method": {"type": "manual_provider_release"}},
+    )
     derived = _derived(descriptor, SnapshotRef.source("example:records:1"))
     root = SnapshotRef.derived(derived.snapshot_id)
 
@@ -443,7 +448,12 @@ def test_recipe_revision_drift_recommends_matching_registered_output() -> None:
 def test_manual_source_and_caller_derived_are_unverifiable_results_not_exceptions() -> None:
     source_id = DatasetId("manual", "records")
     output_id = DatasetId("collaborator", "output")
-    source = _source(source_id, "1", 1)
+    source = _source(
+        source_id,
+        "1",
+        1,
+        metadata={"version_method": {"type": "manual_provider_release"}},
+    )
     descriptor = _descriptor(output_id, source_id)
     derived = _derived(descriptor, SnapshotRef.source("manual:records:1"))
 
@@ -570,56 +580,21 @@ def test_known_input_update_outweighs_a_manual_source_caveat() -> None:
 
 def test_hard_unverifiable_dependency_is_not_masked_by_a_manual_caveat() -> None:
     manual_id = DatasetId("manual", "records")
-    automatic_id = DatasetId("automatic", "records")
-    output_id = DatasetId("derived", "combined")
-    descriptor = DerivedRecipeDescriptor(
-        output_id,
-        "Combined output",
-        "Derived from manual and automatic records.",
-        "1",
-        (
-            RecipeInputSlot("manual", "Manual records", SnapshotKind.SOURCE, manual_id),
-            RecipeInputSlot(
-                "automatic",
-                "Automatic records",
-                SnapshotKind.SOURCE,
-                automatic_id,
-            ),
-        ),
-        ProducerIdentity("registry", "1", "https://example.org/repo", "c" * 40),
-        {"name": "combined"},
-    )
     manual = _source(
         manual_id,
         "1",
         1,
         metadata={"version_method": {"type": "manual_provider_release"}},
     )
-    automatic = _source(automatic_id, "1", 1)
-    inputs = (
-        _registered(SnapshotRef.source(manual.snapshot_id), "manual"),
-        _registered(SnapshotRef.source(automatic.snapshot_id), "automatic"),
-    )
-    derived = PublishedDerivedSnapshot(
-        output_id,
-        managed_recipe_version(descriptor, inputs),
-        (_file(),),
-        inputs,
-        descriptor.producer,
-        descriptor.transform,
-        {},
-        datetime(2026, 9, 10, tzinfo=UTC),
-        "s3://registry/derived/derived/combined/deps-current/manifest.yaml",
-        build_key=None,
-        publication_fingerprint="d" * 64,
-    )
+    child_id = DatasetId("collaborator", "child")
+    child = _caller_derived(child_id, SnapshotRef.source(manual.snapshot_id))
     parent_id = DatasetId("derived", "parent")
     parent_descriptor = _descriptor(
         parent_id,
-        output_id,
+        child_id,
         input_kind=SnapshotKind.DERIVED,
     )
-    parent = _derived(parent_descriptor, SnapshotRef.derived(derived.snapshot_id))
+    parent = _derived(parent_descriptor, SnapshotRef.derived(child.snapshot_id))
 
     result = AuditSnapshotReferences(
         cast(
@@ -627,8 +602,7 @@ def test_hard_unverifiable_dependency_is_not_masked_by_a_manual_caveat() -> None
             Browse(
                 (
                     _source_dataset(manual),
-                    _source_dataset(automatic),
-                    _derived_dataset(derived),
+                    _derived_dataset(child),
                     _derived_dataset(parent),
                 )
             ),
@@ -636,20 +610,17 @@ def test_hard_unverifiable_dependency_is_not_masked_by_a_manual_caveat() -> None
         cast(
             Any,
             Check(
-                {
-                    manual_id: UnknownSourceError("no automatic checker"),
-                    automatic_id: UnknownSourceError("probe unavailable"),
-                }
+                {manual_id: UnknownSourceError("no automatic checker")}
             ),
         ),
-        cast(Any, Recipes(descriptor, parent_descriptor)),
+        cast(Any, Recipes(parent_descriptor)),
     ).execute((SnapshotRef.derived(parent.snapshot_id),)).for_reference(
         SnapshotRef.derived(parent.snapshot_id)
     )
 
     assert result.disposition is AuditDisposition.UNVERIFIABLE
     assert result.reason == (
-        f"Dependency freshness cannot be verified: {derived.snapshot_id}"
+        f"Dependency freshness cannot be verified: {child.snapshot_id}"
     )
 
 
@@ -698,6 +669,37 @@ def test_registered_newer_source_makes_managed_derived_rebuild_actionable() -> N
     assert derived_result.disposition is AuditDisposition.REBUILD_DERIVED
     assert derived_result.rebuild_required
     assert report.actions == (source_result, derived_result)
+
+
+def test_registered_current_derived_is_recommended_with_check_caveats() -> None:
+    source_id = DatasetId("example", "records")
+    output_id = DatasetId("derived", "output")
+    descriptor = _descriptor(output_id, source_id)
+    source_v1 = _source(source_id, "1", 1)
+    source_v2 = _source(source_id, "2", 2)
+    old = _derived(descriptor, SnapshotRef.source(source_v1.snapshot_id))
+    current = _derived(descriptor, SnapshotRef.source(source_v2.snapshot_id))
+
+    result = AuditSnapshotReferences(
+        cast(
+            BrowseRegistryCatalog,
+            Browse(
+                (
+                    _source_dataset(source_v2, source_v1),
+                    _derived_dataset(current, old),
+                )
+            ),
+        ),
+        cast(Any, Check({source_id: UnknownSourceError("probe unavailable")})),
+        cast(Any, Recipes(descriptor)),
+    ).execute((SnapshotRef.derived(old.snapshot_id),)).for_reference(
+        SnapshotRef.derived(old.snapshot_id)
+    )
+
+    assert result.disposition is AuditDisposition.UPDATE_PIN
+    assert result.recommended_reference == SnapshotRef.derived(current.snapshot_id)
+    assert result.caveats[0].code is AuditCaveatCode.UPSTREAM_CHECK_UNVERIFIED
+    assert not result.is_current
 
 
 def test_legacy_derived_inputs_without_slots_resolve_to_registered_current_output() -> None:
