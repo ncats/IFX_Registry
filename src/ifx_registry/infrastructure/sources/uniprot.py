@@ -67,11 +67,22 @@ UNIPROT_HUMAN_IDMAPPING_URL = (
     "https://ftp.ebi.ac.uk/pub/databases/uniprot/current_release/knowledgebase/"
     "idmapping/by_organism/HUMAN_9606_idmapping.dat.gz"
 )
+UNIPROT_GENE_CENTRIC_BASE_URL = (
+    "https://ftp.expasy.org/databases/uniprot/current_release/knowledgebase/"
+    "reference_proteomes/Eukaryota/UP000005640"
+)
+UNIPROT_RELEASE_METALINK_URL = (
+    "https://ftp.expasy.org/databases/uniprot/current_release/RELEASE.metalink"
+)
 UNIPROT_HOMEPAGE = "https://www.uniprot.org/"
 UNIPROT_HUMAN_NAME = "uniprot-human.json.gz"
 UNIPROT_REVIEWED_HUMAN_NAME = "uniprot-human-reviewed.json.gz"
 UNIPROT_HUMAN_REFERENCE_PROTEOME_NAME = "uniprotkb_taxonomy_id_9606.json.gz"
 UNIPROT_HUMAN_IDMAPPING_NAME = "HUMAN_9606_idmapping.dat.gz"
+UNIPROT_GENE_CENTRIC_CANONICAL_FASTA = "UP000005640_9606.fasta.gz"
+UNIPROT_GENE_CENTRIC_ADDITIONAL_FASTA = "UP000005640_9606_additional.fasta.gz"
+UNIPROT_GENE_CENTRIC_GENE2ACC = "UP000005640_9606.gene2acc.gz"
+UNIPROT_GENE_CENTRIC_IDMAPPING = "UP000005640_9606.idmapping.gz"
 UNIPROT_REFERENCE_PROTEOME_MINIMUM_RECORDS = 100_000
 UNIPROT_HUMAN_IDMAPPING_MINIMUM_ROWS = 1_000_000
 
@@ -79,6 +90,65 @@ UNIPROT_FILES = (
     HttpFileSpec(UNIPROT_HUMAN_URL, UNIPROT_HUMAN_NAME),
     HttpFileSpec(UNIPROT_REVIEWED_HUMAN_URL, UNIPROT_REVIEWED_HUMAN_NAME),
 )
+
+UNIPROT_GENE_CENTRIC_FILES = tuple(
+    HttpFileSpec(f"{UNIPROT_GENE_CENTRIC_BASE_URL}/{name}", name)
+    for name in (
+        UNIPROT_GENE_CENTRIC_CANONICAL_FASTA,
+        UNIPROT_GENE_CENTRIC_ADDITIONAL_FASTA,
+        UNIPROT_GENE_CENTRIC_GENE2ACC,
+        UNIPROT_GENE_CENTRIC_IDMAPPING,
+    )
+)
+
+
+class UniProtGeneCentricVersionStrategy(SourceVersionStrategy):
+    """Require the REST release and reference-proteome mirror to agree."""
+
+    @property
+    def evidence_urls(self) -> tuple[str, ...]:
+        return (*UNIPROT_VERSION_STRATEGY.evidence_urls, UNIPROT_RELEASE_METALINK_URL)
+
+    @property
+    def description(self) -> str:
+        return (
+            "Compares the UniProt REST release headers with the release marker "
+            "published by the reference-proteome file mirror."
+        )
+
+    def discover(
+        self,
+        http: HttpGateway,
+        request: VersionProbeRequest,
+    ) -> SourceVersion:
+        rest_release = UNIPROT_VERSION_STRATEGY.discover(http, request)
+        response = http.get_text(
+            UNIPROT_RELEASE_METALINK_URL,
+            timeout=request.timeout.total_seconds(),
+        )
+        match = re.search(r"<version>\s*([^<]+?)\s*</version>", response.text)
+        mirror_release = match.group(1).strip() if match else ""
+        if not re.fullmatch(r"\d{4}_\d{2}", mirror_release):
+            raise SourceValidationError(
+                "UniProt reference-proteome mirror has no valid release marker"
+            )
+        if mirror_release != rest_release.value:
+            raise SourceValidationError(
+                "UniProt REST and reference-proteome mirror releases disagree: "
+                f"{rest_release.value!r} != {mirror_release!r}"
+            )
+        return SourceVersion(
+            value=rest_release.value,
+            version_date=rest_release.version_date,
+            evidence={
+                **rest_release.evidence,
+                "mirror_release": mirror_release,
+                "mirror_release_url": response.metadata.final_url,
+            },
+        )
+
+
+UNIPROT_GENE_CENTRIC_VERSION_STRATEGY = UniProtGeneCentricVersionStrategy()
 
 
 def normalize_uniprot_release_date(value: str | None) -> date | None:
@@ -460,6 +530,89 @@ class UniProtHumanReferenceProteomeSource(GeneratedSnapshotSource):
         ) from last_error
 
 
+class UniProtHumanGeneCentricProteomeSource(HttpSnapshotSource):
+    """Atomic UniProt gene-centric reference-proteome release bundle."""
+
+    _dataset = DatasetId("uniprot", "human_reference_proteome_gene_centric")
+
+    def __init__(
+        self,
+        http: HttpGateway,
+        *,
+        minimum_canonical_records: int = 19_000,
+        minimum_additional_records: int = 100_000,
+        minimum_mapping_rows: int = 100_000,
+    ):
+        super().__init__(http)
+        minimums = (
+            minimum_canonical_records,
+            minimum_additional_records,
+            minimum_mapping_rows,
+        )
+        if any(value <= 0 for value in minimums):
+            raise ValueError("UniProt gene-centric validation minimums must be positive")
+        self._minimum_canonical_records = minimum_canonical_records
+        self._minimum_additional_records = minimum_additional_records
+        self._minimum_mapping_rows = minimum_mapping_rows
+
+    @property
+    def dataset(self) -> DatasetId:
+        return self._dataset
+
+    @property
+    def file_specs(self) -> tuple[HttpFileSpec, ...]:
+        return UNIPROT_GENE_CENTRIC_FILES
+
+    @property
+    def homepage(self) -> str:
+        return UNIPROT_HOMEPAGE
+
+    @property
+    def version_strategy(self) -> SourceVersionStrategy:
+        return UNIPROT_GENE_CENTRIC_VERSION_STRATEGY
+
+    @property
+    def validation_message(self) -> str:
+        return "Validating the complete UniProt gene-centric proteome bundle"
+
+    def validate_downloads(
+        self,
+        version: SourceVersion,
+        downloads: tuple[DownloadedSourceFile, ...],
+    ) -> SourceValidationResult:
+        canonical = require_download(downloads, UNIPROT_GENE_CENTRIC_CANONICAL_FASTA)
+        additional = require_download(downloads, UNIPROT_GENE_CENTRIC_ADDITIONAL_FASTA)
+        gene2acc = require_download(downloads, UNIPROT_GENE_CENTRIC_GENE2ACC)
+        idmapping = require_download(downloads, UNIPROT_GENE_CENTRIC_IDMAPPING)
+
+        canonical_records = _count_fasta_records(canonical.resource.path)
+        additional_records = _count_fasta_records(additional.resource.path)
+        gene2acc_rows = _count_three_column_rows(gene2acc.resource.path)
+        idmapping_rows = _count_three_column_rows(idmapping.resource.path)
+        checks = (
+            ("canonical FASTA records", canonical_records, self._minimum_canonical_records),
+            ("additional FASTA records", additional_records, self._minimum_additional_records),
+            ("gene2acc rows", gene2acc_rows, self._minimum_mapping_rows),
+            ("idmapping rows", idmapping_rows, self._minimum_mapping_rows),
+        )
+        for label, observed, minimum in checks:
+            if observed < minimum:
+                raise SourceValidationError(
+                    f"UniProt gene-centric {label} are below the reviewed minimum: "
+                    f"{observed} < {minimum}"
+                )
+        return SourceValidationResult(
+            version=version,
+            metadata={
+                "release_bundle": "UP000005640_9606",
+                "canonical_fasta_records": canonical_records,
+                "additional_fasta_records": additional_records,
+                "gene2acc_rows": gene2acc_rows,
+                "idmapping_rows": idmapping_rows,
+                "version_method": "uniprot_release_headers",
+            },
+        )
+
 def _safe_uniprot_search_url(url: str) -> str:
     parsed = urlsplit(url)
     if (
@@ -477,6 +630,39 @@ def _next_link(value: str | None) -> str | None:
         if match:
             return match.group(1)
     return None
+
+
+def _count_fasta_records(path: Path) -> int:
+    records = 0
+    try:
+        with gzip.open(path, "rt", encoding="utf-8", errors="strict") as handle:
+            for line in handle:
+                if line.startswith(">"):
+                    records += 1
+    except (OSError, UnicodeError) as error:
+        raise SourceValidationError(
+            f"Could not read UniProt FASTA {path.name}: {error}"
+        ) from error
+    return records
+
+
+def _count_three_column_rows(path: Path) -> int:
+    rows = 0
+    try:
+        with gzip.open(path, "rt", encoding="utf-8", errors="strict") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                values = line.rstrip("\n").split("\t")
+                if len(values) != 3 or not all(values):
+                    raise SourceValidationError(
+                        f"UniProt mapping {path.name} row {line_number} does not "
+                        "contain three non-empty fields"
+                    )
+                rows += 1
+    except (OSError, UnicodeError) as error:
+        raise SourceValidationError(
+            f"Could not read UniProt mapping {path.name}: {error}"
+        ) from error
+    return rows
 
 
 class UniProtHumanIdMappingSource(HttpSnapshotSource):

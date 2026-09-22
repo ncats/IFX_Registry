@@ -51,6 +51,8 @@ from ifx_registry.infrastructure.sources.release_sources import (
 )
 from ifx_registry.infrastructure.sources.uniprot import (
     UNIPROT_FILES,
+    UNIPROT_GENE_CENTRIC_FILES,
+    UniProtHumanGeneCentricProteomeSource,
     UniProtHumanIdMappingSource,
     UniProtHumanReferenceProteomeSource,
     UniProtHumanSource,
@@ -105,6 +107,10 @@ class BuiltInSourceFactory:
                 "uniprot_human_reference_proteome": SourceFactoryDefinition(
                     UniProtHumanReferenceProteomeSource,
                     expected_file_count=1,
+                ),
+                "uniprot_human_reference_proteome_gene_centric": SourceFactoryDefinition(
+                    UniProtHumanGeneCentricProteomeSource,
+                    expected_file_count=len(UNIPROT_GENE_CENTRIC_FILES),
                 ),
                 "uniprot_human_idmapping": SourceFactoryDefinition(
                     UniProtHumanIdMappingSource,

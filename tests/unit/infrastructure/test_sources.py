@@ -60,14 +60,21 @@ from ifx_registry.infrastructure.sources.reactome import (
     ReactomePathwaysSource,
 )
 from ifx_registry.infrastructure.sources.uniprot import (
+    UNIPROT_GENE_CENTRIC_ADDITIONAL_FASTA,
+    UNIPROT_GENE_CENTRIC_CANONICAL_FASTA,
+    UNIPROT_GENE_CENTRIC_FILES,
+    UNIPROT_GENE_CENTRIC_GENE2ACC,
+    UNIPROT_GENE_CENTRIC_IDMAPPING,
     UNIPROT_HUMAN_IDMAPPING_NAME,
     UNIPROT_HUMAN_IDMAPPING_URL,
     UNIPROT_HUMAN_REFERENCE_PROTEOME_NAME,
     UNIPROT_HUMAN_REFERENCE_PROTEOME_URL,
     UNIPROT_HUMAN_URL,
     UNIPROT_RELEASE_PROBE_URL,
+    UNIPROT_RELEASE_METALINK_URL,
     UNIPROT_REVIEWED_HUMAN_URL,
     UniProtHumanIdMappingSource,
+    UniProtHumanGeneCentricProteomeSource,
     UniProtHumanReferenceProteomeSource,
     UniProtHumanSource,
     normalize_uniprot_release_date,
@@ -149,6 +156,10 @@ def _uniprot_gateway(
             "X-UniProt-Release": "2026_03",
             "X-UniProt-Release-Date": "02-September-2026",
         },
+    )
+    gateway.text_responses[UNIPROT_RELEASE_METALINK_URL] = HttpText(
+        "<metalink><version>2026_03</version></metalink>",
+        HttpMetadata(UNIPROT_RELEASE_METALINK_URL, {"content-type": "application/xml"}),
     )
     gateway.payloads[UNIPROT_HUMAN_URL] = _gzip_uniprot(full_records)
     gateway.payloads[UNIPROT_REVIEWED_HUMAN_URL] = _gzip_uniprot(reviewed_records)
@@ -659,6 +670,66 @@ def test_uniprot_reference_proteome_rejects_nonhuman_records(tmp_path: Path) -> 
     assert not (
         tmp_path / "uniprot" / "human_reference_proteome" / "2026_03"
     ).exists()
+
+
+def test_uniprot_gene_centric_bundle_is_atomic_and_profiled(tmp_path: Path) -> None:
+    gateway = _uniprot_gateway(full_records=[], reviewed_records=[])
+    payloads = {
+        UNIPROT_GENE_CENTRIC_CANONICAL_FASTA: gzip.compress(
+            b">sp|P00001|ONE Human protein\nAAAA\n"
+        ),
+        UNIPROT_GENE_CENTRIC_ADDITIONAL_FASTA: gzip.compress(
+            b">sp|P00001-2|ONE-2 Isoform of P00001, Human protein\nAAAA\n"
+        ),
+        UNIPROT_GENE_CENTRIC_GENE2ACC: gzip.compress(
+            b"GENE1\tP00001\tGENE1\n"
+        ),
+        UNIPROT_GENE_CENTRIC_IDMAPPING: gzip.compress(
+            b"P00001\tGeneID\t1\n"
+        ),
+    }
+    for spec in UNIPROT_GENE_CENTRIC_FILES:
+        gateway.payloads[spec.url] = payloads[spec.name]
+    source = UniProtHumanGeneCentricProteomeSource(
+        gateway,
+        minimum_canonical_records=1,
+        minimum_additional_records=1,
+        minimum_mapping_rows=1,
+    )
+
+    snapshot = source.fetch(FetchRequest(tmp_path))
+
+    assert snapshot.snapshot_id == (
+        "uniprot:human_reference_proteome_gene_centric:2026_03"
+    )
+    assert [str(item.relative_path) for item in snapshot.files] == [
+        spec.name for spec in UNIPROT_GENE_CENTRIC_FILES
+    ]
+    assert snapshot.metadata["canonical_fasta_records"] == 1
+    assert snapshot.metadata["additional_fasta_records"] == 1
+    assert snapshot.metadata["gene2acc_rows"] == 1
+    assert snapshot.metadata["idmapping_rows"] == 1
+
+
+def test_uniprot_gene_centric_bundle_rejects_mirror_release_mismatch(
+    tmp_path: Path,
+) -> None:
+    gateway = _uniprot_gateway(full_records=[], reviewed_records=[])
+    gateway.text_responses[UNIPROT_RELEASE_METALINK_URL] = HttpText(
+        "<metalink><version>2026_02</version></metalink>",
+        HttpMetadata(UNIPROT_RELEASE_METALINK_URL, {"content-type": "application/xml"}),
+    )
+    source = UniProtHumanGeneCentricProteomeSource(
+        gateway,
+        minimum_canonical_records=1,
+        minimum_additional_records=1,
+        minimum_mapping_rows=1,
+    )
+
+    with pytest.raises(SourceValidationError, match="releases disagree"):
+        source.fetch(FetchRequest(tmp_path))
+
+    assert gateway.download_calls == []
 
 
 def test_uniprot_reference_proteome_retries_one_failed_page(
