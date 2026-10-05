@@ -36,6 +36,7 @@ from ifx_registry.infrastructure.sources.last_modified import (
     LastModifiedHttpSource,
     LastModifiedSourceDefinition,
 )
+from ifx_registry.infrastructure.sources.mane import ManeHumanSummarySource
 from ifx_registry.infrastructure.sources.ncbi import NcbiHumanGeneInfoSource
 from ifx_registry.infrastructure.sources.ncbi_gene_mappings import (
     NCBI_GENE_MAPPING_FILES,
@@ -131,6 +132,9 @@ class BuiltInSourceFactory:
                 "hgnc_complete_set": SourceFactoryDefinition(
                     HgncCompleteSetSource,
                     expected_file_count=1,
+                ),
+                "ncbi_mane_human_summary": SourceFactoryDefinition(
+                    ManeHumanSummarySource, expected_file_count=1,
                 ),
                 "ncbi_human_gene_info": SourceFactoryDefinition(
                     NcbiHumanGeneInfoSource,

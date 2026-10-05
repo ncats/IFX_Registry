@@ -125,6 +125,14 @@ sources:
     display_name: NCBI Gene Summaries
     description: Descriptions and summary text for NCBI Gene records.
 
+  - adapter: ncbi_mane_human_summary
+    enabled: true
+    display_name: NCBI MANE Human Summary
+    description: >-
+      GRCh38 MANE Select and MANE Plus Clinical transcript matches between
+      RefSeq and Ensembl, preserved from one numbered NCBI MANE release.
+      Versioned independently from the Ensembl FTP dataset.
+
   - adapter: ncbi_human_gene_info
     enabled: true
     display_name: NCBI Human Gene Information

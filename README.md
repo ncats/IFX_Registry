@@ -542,6 +542,29 @@ The FTP contract was checked against IFX_Harmonizers `main` at `1f472b9`,
 `src/code/publicdata/target_data/ensembl_download.py`. The consumer inventory
 was checked against IFX_ODIN `246aec4` and Registry `405483e`.
 
+## NCBI MANE human summary
+
+`ncbi:mane_human_summary:<release>` provides the independent NCBI MANE release
+used alongside Ensembl FTP. It contains one byte-faithful gzip file,
+`mane_summary.tsv.gz`, acquired from
+`release_<release>/MANE.GRCh38.v<release>.summary.txt.gz` under the
+[NCBI MANE human directory](https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/).
+The configured source appears as **NCBI MANE Human Summary** in the website.
+
+The source discovers the MANE version from `current/README_versions.txt` and
+records its Ensembl and RefSeq annotation release references as provenance.
+These are companion release identifiers, not additional bundled datasets.
+Validation checks gzip integrity, all summary columns, accession formats,
+GRCh38 chromosome/patch/scaffold coordinates, MANE statuses, and minimum
+coverage. Missing HGNC or protein IDs are retained and counted as optional
+fields. File size and
+Last-Modified are checked across acquisition; the packaging timestamp is not
+reported as the MANE release date. Registry publication adds SHA-256 checksums;
+no publisher checksum file was present in the inspected release directory.
+
+MANE 1.5 is the release requested by Harmonizers at `1f472b9`. Implementing or
+publishing this Registry source does not change that consumer's existing pin.
+
 ## Development
 
 Create a Python 3.11 or newer environment, then install the development tools:
