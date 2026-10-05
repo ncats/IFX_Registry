@@ -769,3 +769,47 @@ original release number and rechecks the README before committing. Existing
 release-only snapshots remain available for materialization; new acquisition
 requires the dated version. This detects changes advertised by the README,
 not silent content changes that preserve both its release and update date.
+
+## Pathway acquisition contracts
+
+- `panther:pathways` preserves the two raw, all-species files
+  `SequenceAssociationPathway<pathway-release>.txt` and
+  `PANTHER<hmm-release>_HMM_classifications`. Its composite version, currently
+  `19.0-pathway3.6.8`, records both independent upstream releases. These files
+  are not both called release 19.0 by upstream. The existing
+  `panther:protein_classes` dataset remains separate. Validation checks schemas,
+  human association coverage, and file timestamps before/after acquisition.
+- New `reactome:pathways:<release>-bundle1` snapshots retain the five original
+  members and add `ReactomePathways.txt` and `NCBI2Reactome_All_Levels.txt`.
+  Existing release-only snapshots remain immutable and materializable. New
+  acquisitions use the suffixed version, with the upstream release checked
+  before and after download. Raw mapping rows with accession strings in the
+  first column are preserved and counted; do not assume every value is a
+  numeric NCBI Gene ID.
+- `wikipathways:pathway_list` preserves the complete upstream `listPathways.json`
+  (all organisms). Its version combines the HTTP update date and a content-hash
+  prefix, with the full SHA-256 retained in version evidence. Discovery checks
+  the small JSON payload; acquisition verifies its hash and schema and rechecks
+  upstream before committing. The live JSON is updated independently of the
+  monthly `wikipathways:human_gmt` release. Pin both independently; this adapter
+  does not claim they represent the same release or synthesize a historical JSON.
+
+Live validation on October 5, 2026 found 148,970 PANTHER association rows
+(18,660 human) and 143,695 HMM rows. Reactome 97 contained 23,603 pathway rows
+(2,883 human) and 788,194 NCBI mapping rows (159,571 human); 232 mapping rows
+had nonnumeric source identifiers. The WikiPathways live list contained 2,215
+pathways across 41 organisms, including 1,131 human pathways.
+
+## NCBI gene2go
+
+`ncbi:gene2go` preserves the complete upstream `gene2go.gz` file, including all
+species, evidence codes, qualifiers, citations, and repeated assertions. It
+performs no human filtering or ID remapping. Versions use NCBI's HTTP
+Last-Modified date; full timestamps are retained and compared during download
+and the final upstream recheck. Version discovery uses HEAD only.
+
+Validation streams the entire gzip to check integrity, the eight-column header,
+row shape, taxon/Gene/GO identifiers, categories, and minimum total/human
+coverage. Counts are recorded in the manifest. Human association overlap with
+GOA does not establish that two particular releases are interchangeable or
+independent corroborating evidence; consumers choose and pin their input.

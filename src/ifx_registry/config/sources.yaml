@@ -158,6 +158,11 @@ sources:
       Core human gene identifiers, symbols, synonyms, cross-references,
       locations, descriptions, and gene types from NCBI Gene.
 
+  - adapter: ncbi_gene2go
+    enabled: true
+    display_name: NCBI Gene to GO Associations
+    description: Raw all-species gene2go export with gene identifiers, GO terms, evidence, qualifiers, and citations.
+
   - adapter: ncbi_gene_identifier_mappings
     enabled: true
     display_name: NCBI Gene Identifier Mappings
@@ -259,6 +264,11 @@ sources:
     display_name: PANTHER Protein Classes
     description: Human protein classifications and class relationships from PANTHER.
 
+  - adapter: panther_pathways
+    enabled: true
+    display_name: PANTHER Pathways and HMM Classifications
+    description: Raw pathway associations and HMM classifications with separately recorded upstream versions.
+
   - adapter: pathwaycommons_pc_hgnc
     enabled: true
     display_name: Pathway Commons
@@ -273,6 +283,11 @@ sources:
     enabled: true
     display_name: WikiPathways Human Pathways
     description: Human pathway gene sets in GMT format from WikiPathways.
+
+  - adapter: wikipathways_pathway_list
+    enabled: true
+    display_name: WikiPathways Pathway List
+    description: Live pathway catalog JSON, independently pinned from the monthly GMT release.
 
   - adapter: wikipathways_rdf_wp
     enabled: true

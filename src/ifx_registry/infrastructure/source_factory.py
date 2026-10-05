@@ -39,10 +39,12 @@ from ifx_registry.infrastructure.sources.last_modified import (
 )
 from ifx_registry.infrastructure.sources.mane import ManeHumanSummarySource
 from ifx_registry.infrastructure.sources.ncbi import NcbiHumanGeneInfoSource
+from ifx_registry.infrastructure.sources.ncbi_gene2go import NcbiGene2GoSource
 from ifx_registry.infrastructure.sources.ncbi_gene_mappings import (
     NCBI_GENE_MAPPING_FILES,
     NcbiGeneIdentifierMappingsSource,
 )
+from ifx_registry.infrastructure.sources.panther_pathways import PantherPathwaysSource
 from ifx_registry.infrastructure.sources.reactome import (
     REACTOME_FILES,
     ReactomePathwaysSource,
@@ -67,6 +69,7 @@ from ifx_registry.infrastructure.sources.uniprot_sparql_exports import (
     UniProtHumanEnsemblIsoformXrefsSource,
     UniProtHumanUniRef100Source,
 )
+from ifx_registry.infrastructure.sources.wikipathways_list import WikiPathwaysListSource
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +106,8 @@ class BuiltInSourceFactory:
         self._definitions = dict(
             definitions
             or {
+                "panther_pathways": SourceFactoryDefinition(PantherPathwaysSource, 2),
+                "wikipathways_pathway_list": SourceFactoryDefinition(WikiPathwaysListSource, 1),
                 "reactome_pathways": SourceFactoryDefinition(
                     ReactomePathwaysSource,
                     expected_file_count=len(REACTOME_FILES),
@@ -152,6 +157,7 @@ class BuiltInSourceFactory:
                     NcbiHumanGeneInfoSource,
                     expected_file_count=1,
                 ),
+                "ncbi_gene2go": SourceFactoryDefinition(NcbiGene2GoSource, 1),
                 "ncbi_gene_identifier_mappings": SourceFactoryDefinition(
                     NcbiGeneIdentifierMappingsSource,
                     expected_file_count=len(NCBI_GENE_MAPPING_FILES),

@@ -139,6 +139,11 @@ def _reactome_gateway(
     for file_spec in REACTOME_FILES:
         gateway.payloads[file_spec.url] = f"contents of {file_spec.name}\n".encode()
         gateway.download_headers[file_spec.url] = {"content-type": "text/plain"}
+    gateway.payloads[REACTOME_FILES[0].url] = b"R-HSA-123\tExample pathway\tHomo sapiens\n"
+    gateway.payloads[REACTOME_FILES[1].url] = (
+        b"1\tR-HSA-123\thttps://reactome.org/PathwayBrowser/#/R-HSA-123\t"
+        b"Example\tTAS\tHomo sapiens\n"
+    )
     if last_modified:
         gateway.download_headers[REACTOME_FILES[-1].url]["Last-Modified"] = last_modified
     return gateway
@@ -276,7 +281,7 @@ def test_reactome_discovers_database_version() -> None:
 
     version = source.discover_latest(VersionProbeRequest(timeout=timedelta(seconds=9)))
 
-    assert version.value == "97"
+    assert version.value == "97-bundle1"
     assert version.evidence["method"] == "reactome_database_version"
 
 
@@ -514,16 +519,16 @@ def test_reactome_fetches_complete_versioned_snapshot(tmp_path: Path) -> None:
 
     snapshot = FetchSource().execute(source, FetchRequest(tmp_path))
 
-    assert snapshot.snapshot_id == "reactome:pathways:97"
+    assert snapshot.snapshot_id == "reactome:pathways:97-bundle1"
     assert snapshot.version.version_date == date(2026, 6, 20)
     assert {str(file.relative_path) for file in snapshot.files} == {
         file_spec.name for file_spec in REACTOME_FILES
     }
     assert all(
-        file.local_path.parent == tmp_path / "reactome" / "pathways" / "97"
+        file.local_path.parent == tmp_path / "reactome" / "pathways" / "97-bundle1"
         for file in snapshot.files
     )
-    assert len(gateway.download_calls) == 5
+    assert len(gateway.download_calls) == 7
 
 
 def test_reactome_does_not_publish_snapshot_without_release_date(tmp_path: Path) -> None:
@@ -532,7 +537,7 @@ def test_reactome_does_not_publish_snapshot_without_release_date(tmp_path: Path)
     with pytest.raises(SourceValidationError, match="Last-Modified"):
         source.fetch(FetchRequest(tmp_path))
 
-    assert not (tmp_path / "reactome" / "pathways" / "97").exists()
+    assert not (tmp_path / "reactome" / "pathways" / "97-bundle1").exists()
 
 
 def test_reactome_rejects_moved_upstream_before_downloading(tmp_path: Path) -> None:
@@ -562,8 +567,8 @@ def test_reactome_rejects_release_that_moves_during_download(
     with pytest.raises(VersionMismatchError, match="upstream currently reports 98"):
         source.fetch(FetchRequest(tmp_path))
 
-    assert len(gateway.download_calls) == 5
-    assert not (tmp_path / "reactome" / "pathways" / "97").exists()
+    assert len(gateway.download_calls) == 7
+    assert not (tmp_path / "reactome" / "pathways" / "97-bundle1").exists()
 
 
 @pytest.mark.parametrize(

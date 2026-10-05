@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
+from ifx_registry.application.contracts import VersionProbeRequest
 from ifx_registry.domain.errors import SourceValidationError
 from ifx_registry.domain.models import DatasetId, SourceVersion
 from ifx_registry.infrastructure.http import HttpGateway
@@ -25,6 +27,14 @@ REACTOME_HOMEPAGE = "https://reactome.org/"
 REACTOME_INTERACTOR_NAME = "reactome.homo_sapiens.interactions.tab-delimited.txt"
 
 REACTOME_FILES = (
+    HttpFileSpec(
+        "https://reactome.org/download/current/ReactomePathways.txt",
+        "ReactomePathways.txt",
+    ),
+    HttpFileSpec(
+        "https://reactome.org/download/current/NCBI2Reactome_All_Levels.txt",
+        "NCBI2Reactome_All_Levels.txt",
+    ),
     HttpFileSpec(
         "https://reactome.org/download/current/ReactomePathways.gmt.zip",
         "ReactomePathways.gmt.zip",
@@ -59,6 +69,25 @@ REACTOME_VERSION_STRATEGY = TextEndpointVersionStrategy(
 )
 
 
+class ReactomeBundleVersionStrategy(SourceVersionStrategy):
+    @property
+    def evidence_urls(self) -> tuple[str, ...]:
+        return REACTOME_VERSION_STRATEGY.evidence_urls
+
+    @property
+    def description(self) -> str:
+        return REACTOME_VERSION_STRATEGY.description + " Uses bundle1 for the seven-file contract."
+
+    def discover(self, http: HttpGateway, request: VersionProbeRequest) -> SourceVersion:
+        release = REACTOME_VERSION_STRATEGY.discover(http, request)
+        if not release.value.isdigit():
+            raise SourceValidationError("Reactome release must be an integer")
+        return SourceVersion(
+            f"{release.value}-bundle1",
+            evidence={**release.evidence, "upstream_release": release.value, "bundle_revision": 1},
+        )
+
+
 class ReactomePathwaysSource(HttpSnapshotSource):
     """Reactome's complete pathway input set."""
 
@@ -81,7 +110,7 @@ class ReactomePathwaysSource(HttpSnapshotSource):
 
     @property
     def version_strategy(self) -> SourceVersionStrategy:
-        return REACTOME_VERSION_STRATEGY
+        return ReactomeBundleVersionStrategy()
 
     @property
     def version_check_message(self) -> str:
@@ -100,6 +129,34 @@ class ReactomePathwaysSource(HttpSnapshotSource):
         version: SourceVersion,
         downloads: tuple[DownloadedSourceFile, ...],
     ) -> SourceValidationResult:
+        counts = {}
+        for name, columns, id_column in (
+            ("ReactomePathways.txt", 3, 0),
+            ("NCBI2Reactome_All_Levels.txt", 6, 1),
+        ):
+            rows = human_rows = non_numeric_ids = 0
+            with require_download(downloads, name).resource.path.open(encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    fields = line.rstrip("\r\n").split("\t")
+                    if (
+                        len(fields) != columns
+                        or not re.fullmatch(r"R-[A-Z]{3}-\d+", fields[id_column])
+                        or not fields[-1].strip()
+                        or (id_column == 1 and not fields[0].strip())
+                    ):
+                        raise SourceValidationError(f"Invalid {name} record at row {rows + 1}")
+                    non_numeric_ids += id_column == 1 and not fields[0].isdigit()
+                    rows += 1
+                    human_rows += fields[-1] == "Homo sapiens"
+            if not human_rows:
+                raise SourceValidationError(f"{name} contains no human records")
+            counts[name] = {
+                "rows": rows,
+                "human_rows": human_rows,
+                "non_numeric_source_ids": non_numeric_ids,
+            }
         interactor = require_download(downloads, REACTOME_INTERACTOR_NAME)
         last_modified = interactor.resource.metadata.header("last-modified")
         if not last_modified:
@@ -121,5 +178,5 @@ class ReactomePathwaysSource(HttpSnapshotSource):
         )
         return SourceValidationResult(
             version=enriched_version,
-            metadata={"version_method": "reactome_database_version"},
+            metadata={"version_method": "reactome_database_version", "added_file_counts": counts},
         )
