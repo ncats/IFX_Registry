@@ -62,6 +62,10 @@ from ifx_registry.infrastructure.sources.uniprot import (
 from ifx_registry.infrastructure.sources.uniprot_isoforms import (
     UniProtHumanIsoformsSource,
 )
+from ifx_registry.infrastructure.sources.uniprot_sparql_exports import (
+    UniProtHumanEnsemblIsoformXrefsSource,
+    UniProtHumanUniRef100Source,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +125,12 @@ class BuiltInSourceFactory:
                 "uniprot_human_isoforms": SourceFactoryDefinition(
                     UniProtHumanIsoformsSource,
                     expected_file_count=2,
+                ),
+                "uniprot_human_uniref100_sparql": SourceFactoryDefinition(
+                    UniProtHumanUniRef100Source, expected_file_count=4,
+                ),
+                "uniprot_human_ensembl_isoform_xrefs_sparql": SourceFactoryDefinition(
+                    UniProtHumanEnsemblIsoformXrefsSource, expected_file_count=4,
                 ),
                 "ensembl_human_ftp": SourceFactoryDefinition(
                     EnsemblHumanFtpSource, expected_file_count=12,

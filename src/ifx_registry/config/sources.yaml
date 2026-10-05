@@ -43,6 +43,20 @@ sources:
       Canonical and computationally mapped human isoform exports generated from
       one verified UniProt SPARQL release.
 
+  - adapter: uniprot_human_uniref100_sparql
+    enabled: true
+    display_name: UniProt Human UniRef100 SPARQL
+    description: >-
+      Direct human UniRef100 memberships including identity, seed, and
+      representative flags, with raw query results and a consumer CSV.
+
+  - adapter: uniprot_human_ensembl_isoform_xrefs_sparql
+    enabled: true
+    display_name: UniProt Human Ensembl Isoform Xrefs SPARQL
+    description: >-
+      Direct human Ensembl transcript-to-UniProt isoform mappings from UniProt,
+      with raw query results and a consumer CSV. No BioMart dependency.
+
   - adapter: ensembl_human_ftp
     enabled: true
     display_name: Ensembl Human FTP

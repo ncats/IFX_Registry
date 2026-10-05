@@ -1114,13 +1114,17 @@ async def test_source_deprecation_links_work_before_and_after_publication(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("published", [False, True])
-async def test_recipe_deprecation_visible_without_inventing_replacement_links(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, published: bool,
+@pytest.mark.parametrize("has_replacement", [False, True])
+async def test_recipe_deprecation_links(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, published: bool, has_replacement: bool,
 ) -> None:
     original = PreviewRecipe.descriptor.fget
     message = "A direct UniProt SPARQL source is planned. Replacement not yet available."
     monkeypatch.setattr(PreviewRecipe, "descriptor", property(
-        lambda self: replace(original(self), deprecated=True, deprecation_message=message)
+        lambda self: replace(
+            original(self), deprecated=True, deprecation_message=message,
+            replacement=DatasetId("uniprot", "human_uniref100_sparql") if has_replacement else None,
+        )
     ))
     objects = FakeObjectStore()
     payload = tmp_path / "records.tsv"
@@ -1164,4 +1168,7 @@ async def test_recipe_deprecation_visible_without_inventing_replacement_links(
                 assert response.status_code == 200
                 assert '<span class="deprecation-badge">Deprecated</span>' in response.text
                 assert message in response.text
-                assert '#source-uniprot-' not in response.text
+                if has_replacement:
+                    assert 'href="/#source-uniprot-human_uniref100_sparql"' in response.text
+                else:
+                    assert '#source-uniprot-' not in response.text

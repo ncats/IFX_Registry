@@ -40,8 +40,11 @@ class DerivedRecipeDescriptor:
     transform: Mapping[str, Any]
     deprecated: bool = False
     deprecation_message: str | None = None
+    replacement: DatasetId | None = None
 
     def __post_init__(self) -> None:
+        if self.replacement is not None and not self.deprecated:
+            raise ValueError("replacement requires a deprecated recipe")
         if self.deprecated and not (self.deprecation_message or "").strip():
             raise ValueError("deprecated recipes require a deprecation message")
         if self.deprecation_message is not None and not self.deprecated:

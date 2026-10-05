@@ -2,5 +2,9 @@
 <div class="source-deprecation">
     <span class="deprecation-badge">Deprecated</span>
     <span>{{ recipe.deprecation_message }}</span>
+    {% if recipe.replacement %}
+        {% set replacement = recipe.replacement %}
+        <span>For new integrations, use <a href="{{ root_path }}/#source-{{ replacement.source }}-{{ replacement.dataset }}">{{ replacement }}</a>.</span>
+    {% endif %}
 </div>
 {% endif %}

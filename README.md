@@ -663,3 +663,66 @@ Optionally select another installed-source catalog:
 ```bash
 ifx-registry-web --state-dir registry-state --sources sources.yaml
 ```
+
+## Direct UniProt SPARQL sources
+
+Two independent sources replace the deprecated UniRef100 ID-mapping projection
+and Ensembl BioMart-dependent isoform recipe:
+
+| New source | Consumer CSV | Deprecated recipe |
+| --- | --- | --- |
+| `uniprot:human_uniref100_sparql` | `uniprot_uniref100_xref.csv` | `uniprot:uniref100_memberships` |
+| `uniprot:human_ensembl_isoform_xrefs_sparql` | `ensembl_uniprot_isoform_xref.csv` | `ensembl:uniprot_isoform_xrefs` |
+
+Each source appears in the website's available sources and acquires directly
+from UniProt. Versions are `<UniProt release>-export1`. SPARQL's declared release
+must agree with UniProt's REST release before and after acquisition. Each
+snapshot includes `response.json`, `count.json`, and `query.rq` alongside its
+CSV. An independent `COUNT` of the same distinct query results must match the
+validated export; malformed, duplicate, implausibly small, or incomplete results
+are rejected before the shared acquisition workflow commits its staging area.
+Queries have a five-minute timeout and at most three acquisition attempts.
+Published artifacts remain immutable.
+
+UniRef100 includes all human UniProt entries and their annotated sequence
+accessions, including isoforms, that have UniRef100 memberships. Columns match
+Harmonizers: `uniprot_id`, `uniref100_cluster_id`, `uniref100_identity`,
+`uniref100_is_seed`, and `uniref100_is_representative`. Identity is the upstream
+fraction (`1.0`); booleans are `True`/`False`. Missing memberships are not
+invented as blank rows. A consumer can join against its own protein scope to
+record missing mappings. The flags use UniProt's actual `seedFor` (matching
+sequence member) and `representativeFor` (matching accession) predicates.
+Harmonizers' earlier query used `seed`/`representative` and did not constrain
+its flag-bearing member to the requested accession; the corrected flags may
+differ from historical caches.
+
+The Ensembl export preserves versioned transcript IDs and explicit isoform IDs
+in `ensembl_transcript_id_version` and `SPARQL_uniprot_isoform`. Only explicit
+transcript-to-isoform assertions are exported; transcripts without an explicit
+link are not expanded to all isoforms of their parent protein. It has no BioMart,
+Ensembl FTP, or Harmonizers dependency. Its version identifies UniProt's
+annotations, not the current Ensembl FTP release. Consumers retain responsibility
+for joining these annotations to their pinned Ensembl release and applying
+scientific filtering.
+
+Harmonizers must still switch its acquisition/cache handling and select its
+own desired subset. Its UniRef workflow currently uses `noncanonical_with_parents`,
+and its Ensembl SPARQL enrichment is disabled by default. Adding these sources
+does not enable that step or change consumer pins. Deprecated recipes and their
+existing snapshots remain available; the separate `uniprot:human_isoforms`
+source is unchanged.
+
+Contracts inspected: IFX_Harmonizers `origin/main` at `1f472b9`,
+`src/code/publicdata/target_data/{uniprot_uniref100_xref,ensembl_uniprot_isoform_xref}.py`
+and `config/targets_config.yaml`; Registry baseline `b1b357c`. Live predicates
+and sample results were checked against UniProt SPARQL release `2026_03`.
+
+Full local acquisitions checked on October 5, 2026, against release `2026_03`:
+UniRef100 returned **232,837** distinct memberships, including **22,131** isoform
+accessions; Ensembl returned **63,200** distinct transcript/isoform pairs. Both
+matched independent SPARQL counts and passed final release checks. The UniRef
+result contained 180,431 representative flags and no seed flags; an independent
+human seed-membership query also returned no rows. These flags report the
+current RDF assertions, not inferred seed assignments. Streaming validation
+reproduced the consumer CSVs byte-for-byte. These were local validation runs,
+not S3 publications; deployment and publication are separate operator steps.
