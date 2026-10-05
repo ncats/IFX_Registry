@@ -10,13 +10,16 @@ import yaml
 
 from ifx_registry.domain.catalog import SourceDescriptor
 from ifx_registry.domain.errors import SourceConfigurationError
+from ifx_registry.domain.models import DatasetId
 from ifx_registry.infrastructure.catalog import InMemorySourceCatalog
 from ifx_registry.infrastructure.source_factory import BuiltInSourceFactory
 
 DEFAULT_SOURCE_CONFIGURATION = Path(__file__).resolve().parent.parent / "config" / "sources.yaml"
 
 _ROOT_KEYS = frozenset({"schema_version", "sources"})
-_SOURCE_KEYS = frozenset({"adapter", "enabled", "display_name", "description"})
+_SOURCE_KEYS = frozenset({
+    "adapter", "enabled", "display_name", "description", "deprecated", "replacement",
+})
 
 
 class YamlSourceCatalogLoader:
@@ -76,11 +79,30 @@ class YamlSourceCatalogLoader:
             if not enabled:
                 continue
 
+            deprecated = source.get("deprecated", False)
+            if not isinstance(deprecated, bool):
+                raise SourceConfigurationError(f"{location}: deprecated must be true or false")
+            replacement = None
+            if "replacement" in source:
+                value = self._required_text(source, "replacement", location)
+                try:
+                    source_name, dataset_name = value.split(":")
+                    replacement = DatasetId(source_name, dataset_name)
+                except ValueError as error:
+                    raise SourceConfigurationError(
+                        f"{location}: replacement must be a source:dataset ID"
+                    ) from error
+                if not deprecated:
+                    raise SourceConfigurationError(f"{location}: replacement requires deprecated")
             configured = self._factory.create(adapter_name)
+            if replacement == configured.adapter.dataset:
+                raise SourceConfigurationError(f"{location}: a source cannot replace itself")
             descriptor = SourceDescriptor(
                 dataset=configured.adapter.dataset,
                 display_name=display_name,
                 description=description,
+                deprecated=deprecated,
+                replacement=replacement,
                 expected_file_count=configured.expected_file_count,
                 homepage=configured.adapter.homepage,
                 upstream_urls=configured.adapter.upstream_urls,
@@ -89,6 +111,14 @@ class YamlSourceCatalogLoader:
             )
             entries.append((descriptor, configured.adapter))
 
+        installed = {descriptor.dataset: descriptor for descriptor, _ in entries}
+        for descriptor, _ in entries:
+            if descriptor.replacement is not None:
+                replacement_descriptor = installed.get(descriptor.replacement)
+                if replacement_descriptor is None or replacement_descriptor.deprecated:
+                    raise SourceConfigurationError(
+                        f"{descriptor.dataset}: replacement must be an enabled, active source"
+                    )
         return InMemorySourceCatalog(entries)
 
     @staticmethod

@@ -51,6 +51,7 @@ def test_default_configuration_installs_built_in_sources_in_display_order() -> N
         DatasetId("uniprot", "human_reference_proteome_gene_centric"),
         DatasetId("uniprot", "human_idmapping"),
         DatasetId("uniprot", "human_isoforms"),
+        DatasetId("ensembl", "human_ftp"),
         DatasetId("ensembl", "human_biomart"),
         DatasetId("hgnc", "complete_set"),
         DatasetId("cure", "case_reports"),
@@ -106,6 +107,7 @@ def test_default_configuration_installs_built_in_sources_in_display_order() -> N
         4,
         1,
         2,
+        12,
         5,
         1,
         1,
@@ -307,5 +309,32 @@ sources:
         encoding="utf-8",
     )
 
+    with pytest.raises(SourceConfigurationError):
+        _loader().load(configuration)
+
+
+def test_biomart_deprecation_keeps_existing_consumers_available() -> None:
+    descriptors = {item.dataset: item for item in _loader().load().list_descriptors()}
+    legacy = descriptors[DatasetId("ensembl", "human_biomart")]
+    assert legacy.deprecated
+    assert legacy.replacement == DatasetId("ensembl", "human_ftp")
+    assert "ensembl:human_ftp" in legacy.description
+    assert "migration" in legacy.description
+    assert DatasetId("ensembl", "human_ftp") in descriptors
+
+
+@pytest.mark.parametrize("fields", [
+    'deprecated: "yes"',
+    'replacement: ensembl:human_ftp',
+    'deprecated: true\n    replacement: invalid',
+    'deprecated: true\n    replacement: ensembl:human_biomart',
+    'deprecated: true\n    replacement: missing:dataset',
+])
+def test_invalid_deprecation_configuration_is_rejected(tmp_path: Path, fields: str) -> None:
+    configuration = tmp_path / "sources.yaml"
+    configuration.write_text(
+        "schema_version: 1\nsources:\n  - adapter: ensembl_human_biomart\n"
+        "    display_name: BioMart\n    description: Legacy source\n    " + fields + "\n"
+    )
     with pytest.raises(SourceConfigurationError):
         _loader().load(configuration)

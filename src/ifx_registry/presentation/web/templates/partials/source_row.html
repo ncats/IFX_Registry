@@ -10,6 +10,7 @@
             {% endif %}
         </div>
         <span class="source-id">{{ overview.descriptor.dataset }}</span>
+        {% include "partials/source_deprecation.html" %}
         <p>{{ overview.descriptor.description }}</p>
         {% if not overview.operational_state_available %}
             <div class="inline-message error"><strong>Update tools unavailable</strong><span>The registered catalog remains available.</span></div>

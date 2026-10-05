@@ -514,6 +514,34 @@ then creates the canonical manifest with no-overwrite semantics. That manifest
 is the commit point: the web catalog shows only committed S3 snapshots, never
 temporary server files or incomplete uploads.
 
+## Ensembl FTP and BioMart migration
+
+Use `ensembl:human_ftp:<release>` for new human Ensembl integrations. The
+fetcher preserves nine GRCh38 files from one numbered FTP release, served over
+HTTPS: the complete `chr_patch_hapl_scaff` GFF3, Entrez/RefSeq/UniProt mapping
+TSVs, four core MySQL tables, and the core schema. Three upstream `CHECKSUMS`
+manifests are retained alongside the data. Acquisition verifies publisher BSD
+checksums, gzip integrity, file schemas, minimum coverage, assembly, and release
+consistency before committing the snapshot. NCBI MANE is a separate source and
+is not bundled here.
+
+Stable snapshot member names match Harmonizers' current raw-file names:
+`ensembl_homo_sapiens.gff3.gz`, `ensembl_{entrez,refseq,uniprot}.tsv.gz`,
+`ensembl_mysql_{gene,object_xref,xref,external_synonym}.txt.gz`, and
+`ensembl_mysql_schema.sql.gz`. Checksum files are named
+`{gff3,tsv,mysql}_CHECKSUMS`; source URLs retain upstream filenames and release.
+
+`ensembl:human_biomart` is deprecated for new integrations but remains enabled.
+FTP files are not drop-in replacements for its CSVs. ODIN's Pounce
+`EnsemblGeneResolver` and the Registry `ensembl:uniprot_isoform_xrefs` recipe
+still consume BioMart. Migrate and validate these consumers before retiring
+acquisition; existing immutable BioMart snapshots remain valid pinned inputs.
+
+The FTP contract was checked against IFX_Harmonizers `main` at `1f472b9`,
+`config/targets_config.yaml` and
+`src/code/publicdata/target_data/ensembl_download.py`. The consumer inventory
+was checked against IFX_ODIN `246aec4` and Registry `405483e`.
+
 ## Development
 
 Create a Python 3.11 or newer environment, then install the development tools:

@@ -24,6 +24,7 @@ from ifx_registry.infrastructure.sources.ensembl import (
     ENSEMBL_EXPORTS,
     EnsemblHumanBioMartSource,
 )
+from ifx_registry.infrastructure.sources.ensembl_ftp import EnsemblHumanFtpSource
 from ifx_registry.infrastructure.sources.hgnc import HgncCompleteSetSource
 from ifx_registry.infrastructure.sources.inspected_files import (
     INSPECTED_FILE_SOURCES,
@@ -119,6 +120,9 @@ class BuiltInSourceFactory:
                 "uniprot_human_isoforms": SourceFactoryDefinition(
                     UniProtHumanIsoformsSource,
                     expected_file_count=2,
+                ),
+                "ensembl_human_ftp": SourceFactoryDefinition(
+                    EnsemblHumanFtpSource, expected_file_count=12,
                 ),
                 "ensembl_human_biomart": SourceFactoryDefinition(
                     EnsemblHumanBioMartSource,

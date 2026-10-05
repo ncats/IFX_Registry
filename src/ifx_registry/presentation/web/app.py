@@ -795,6 +795,9 @@ def create_app(
             context={
                 "active_page": "catalog",
                 "snapshot": snapshot,
+                "overview": (
+                    find_source_overview(snapshot.dataset) if kind is CatalogKind.SOURCE else None
+                ),
                 "kind": kind,
                 "item": details.dataset,
                 "lineage": lineage,

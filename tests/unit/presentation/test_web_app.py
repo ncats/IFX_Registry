@@ -1062,3 +1062,51 @@ async def test_catalog_and_details_distinguish_source_derived_and_external(
     )
     assert "ChEMBL activity database" in external_detail.text
     assert "<h2 id=\"files-title\">Files</h2>" not in external_detail.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("published", [False, True])
+@pytest.mark.parametrize("replacement_published", [False, True])
+async def test_source_deprecation_links_work_before_and_after_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    published: bool, replacement_published: bool,
+) -> None:
+    objects = FakeObjectStore()
+    repository = S3PublishedSnapshotRepository(objects)
+    payload = tmp_path / "records.tsv"
+    payload.write_text("id\n1\n")
+    for name, enabled in (("records", published), ("successor", replacement_published)):
+        if enabled:
+            repository.publish(SourceSnapshot(
+                dataset=DatasetId("example", name), version=SourceVersion("1"),
+                files=(SnapshotFile(payload, PurePosixPath("records.tsv"), None),),
+            ))
+    services = _services(tmp_path, objects=objects)
+    original = services.list_sources.execute
+
+    def overviews():
+        current = original()[0]
+        legacy = replace(current, descriptor=replace(
+            current.descriptor, deprecated=True, replacement=DatasetId("example", "successor"),
+        ))
+        replacement = replace(current, descriptor=replace(
+            current.descriptor, dataset=DatasetId("example", "successor"),
+            display_name="Successor",
+        ))
+        return (legacy, replacement)
+
+    monkeypatch.setattr(services.list_sources, "execute", overviews)
+    app = create_app(WebSettings(tmp_path, root_path="/registry"), services)
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            catalog = await client.get("/registry/")
+            pages = [catalog]
+            if published:
+                pages += [await client.get("/registry/datasets/source/example/records"),
+                          await client.get("/registry/datasets/source/example/records/1")]
+    assert 'id="source-example-successor"' in catalog.text
+    for page in pages:
+        assert page.status_code == 200
+        assert '<span class="deprecation-badge">Deprecated</span>' in page.text
+        assert 'href="/registry/#source-example-successor"' in page.text

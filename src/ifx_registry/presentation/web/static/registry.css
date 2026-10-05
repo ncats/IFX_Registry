@@ -454,3 +454,9 @@ body:has(.catalog-layout.has-activity) .page-shell { width: min(1380px, calc(100
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Source lifecycle notices are independent of upstream freshness. */
+.source-deprecation { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem; margin-top: .5rem; font-size: .85rem; }
+.deprecation-badge { display: inline-block; padding: .15rem .5rem; border: 1px solid #9a6700; border-radius: .3rem; color: #694500; background: #fff4cc; font-weight: 700; }
+.source-deprecation a { text-decoration: underline; }
+.source-row:target, tr[data-catalog-row]:target { outline: 2px solid #427a99; outline-offset: -2px; }

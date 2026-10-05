@@ -311,3 +311,18 @@ function initializePage(root = document) {
 }
 
 document.addEventListener("DOMContentLoaded", () => initializePage());
+
+// Reveal a replacement source even when current catalog filters hide its row.
+document.addEventListener("click", (event) => {
+    const link = event.target.closest?.(".source-deprecation a");
+    if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    const target = document.getElementById(new URL(link.href).hash.slice(1));
+    if (!target) return;
+    const sourceSearch = document.querySelector("#source-search");
+    if (sourceSearch) {
+        sourceSearch.value = "";
+        sourceSearch.dispatchEvent(new Event("input"));
+    }
+    document.querySelector("#catalog-clear-filter")?.click();
+    target.scrollIntoView({ block: "center" });
+});

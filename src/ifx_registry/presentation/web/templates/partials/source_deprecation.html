@@ -1,0 +1,9 @@
+{% if overview and overview.descriptor.deprecated %}
+<div class="source-deprecation">
+    <span class="deprecation-badge">Deprecated</span>
+    {% if overview.descriptor.replacement %}
+        {% set replacement = overview.descriptor.replacement %}
+        <span>For new integrations, use <a href="{{ root_path }}/#source-{{ replacement.source }}-{{ replacement.dataset }}">{{ replacement }}</a>.</span>
+    {% endif %}
+</div>
+{% endif %}

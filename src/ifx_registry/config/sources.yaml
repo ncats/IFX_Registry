@@ -43,12 +43,24 @@ sources:
       Canonical and computationally mapped human isoform exports generated from
       one verified UniProt SPARQL release.
 
+  - adapter: ensembl_human_ftp
+    enabled: true
+    display_name: Ensembl Human FTP
+    description: >-
+      Release-pinned GRCh38 GFF3 including patches and haplotypes, identifier
+      mapping TSVs, core MySQL tables and schema, with publisher CHECKSUMS.
+      NCBI MANE is a separate source and is not included.
+
   - adapter: ensembl_human_biomart
     enabled: true
     display_name: Ensembl Human BioMart
+    deprecated: true
+    replacement: ensembl:human_ftp
     description: >-
-      Release-coherent human gene, transcript, protein, RefSeq, UniProt, and
-      coordinate exports used by harmonizers and identifier resolvers.
+      Deprecated for new integrations; use ensembl:human_ftp. The FTP files
+      have a different schema and require consumer migration. BioMart remains
+      available for existing pinned consumers, including ODIN Pounce and the
+      Ensembl-UniProt isoform derived recipe.
 
   - adapter: hgnc_complete_set
     enabled: true

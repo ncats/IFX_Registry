@@ -6,6 +6,7 @@
     <span class="kind-badge kind-{{ item.kind.value }}">{{ item.kind.value|title }}</span>
     <h1>{{ item.dataset.source|sourcename }}</h1>
     <p><span class="dataset-name">{{ item.dataset.dataset|datasetname }}</span><code>{{ item.dataset }}</code></p>
+    {% include "partials/source_deprecation.html" %}
 </header>
 
 {% if item.kind.value == "source" %}

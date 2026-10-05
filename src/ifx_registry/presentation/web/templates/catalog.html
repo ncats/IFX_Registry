@@ -122,11 +122,12 @@
                 <tbody>
                 {% for item in datasets %}
                     {% set overview = source_overviews.get(item.dataset) %}
-                    <tr data-catalog-row data-kind="{{ item.kind.value }}" data-search="{{ item.dataset.source|sourcename }} {{ item.dataset.dataset|datasetname }} {{ item.dataset }} {{ item.kind.value }} {{ item.update_capability.value|replace('_', ' ') }} {% for snapshot in item.versions %}{{ snapshot.version }} {% endfor %}">
+                    <tr {% if item.kind.value == "source" %}id="source-{{ item.dataset.source }}-{{ item.dataset.dataset }}"{% endif %} data-catalog-row data-kind="{{ item.kind.value }}" data-search="{{ item.dataset.source|sourcename }} {{ item.dataset.dataset|datasetname }} {{ item.dataset }} {{ item.kind.value }} {{ item.update_capability.value|replace('_', ' ') }} {% for snapshot in item.versions %}{{ snapshot.version }} {% endfor %}">
                         <td class="source-identity">
                             <strong>{{ item.dataset.source|sourcename }}</strong>
                             <span class="dataset-name">{{ item.dataset.dataset|datasetname }}</span>
                             <span class="source-id">{{ item.dataset }}</span>
+                            {% if item.kind.value == "source" %}{% include "partials/source_deprecation.html" %}{% endif %}
                         </td>
                         <td class="catalog-kind"><span class="kind-badge kind-{{ item.kind.value }}">{{ item.kind.value|title }}</span></td>
                         <td class="catalog-latest"><span class="mobile-label">Latest version</span><strong>{{ item.latest.version }}</strong><small>{{ item.latest.published_at|displaytime }}</small></td>

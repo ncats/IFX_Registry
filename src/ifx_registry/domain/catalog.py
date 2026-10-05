@@ -34,8 +34,14 @@ class SourceDescriptor:
     upstream_urls: tuple[str, ...] = ()
     version_check_description: str | None = None
     version_evidence_urls: tuple[str, ...] = ()
+    deprecated: bool = False
+    replacement: DatasetId | None = None
 
     def __post_init__(self) -> None:
+        if self.replacement is not None and not self.deprecated:
+            raise ValueError("replacement requires a deprecated source")
+        if self.replacement == self.dataset:
+            raise ValueError("a source cannot replace itself")
         if not self.display_name.strip():
             raise ValueError("source display_name must not be blank")
         if not self.description.strip():
