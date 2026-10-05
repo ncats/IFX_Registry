@@ -76,11 +76,11 @@ NCBI_GENE_MAPPING_FILES = (
 
 
 @dataclass(frozen=True, slots=True)
-class CoherentLastModifiedStrategy(SourceVersionStrategy):
+class NcbiMappingLastModifiedStrategy(SourceVersionStrategy):
     files: tuple[NcbiMappingFile, ...]
     description: str = (
-        "Requires all three NCBI mapping products to have the same "
-        "Last-Modified date."
+        "Uses the newest NCBI mapping Last-Modified date and retains "
+        "each file timestamp."
     )
 
     @property
@@ -119,26 +119,19 @@ class CoherentLastModifiedStrategy(SourceVersionStrategy):
                     "date": observed_date.isoformat(),
                 }
             )
-        if len(dates) != 1:
-            raise SourceValidationError(
-                "NCBI gene mapping files do not share one release date: "
-                + ", ".join(
-                    f"{item['file']}={item['date']}" for item in observations
-                )
-            )
-        version_date = next(iter(dates))
+        version_date = max(dates)
         return SourceVersion(
             version_date.isoformat(),
             version_date=version_date,
             evidence={
-                "method": "coherent_multi_file_last_modified",
+                "method": "multi_file_max_last_modified",
                 "files": observations,
             },
         )
 
 
 class NcbiGeneIdentifierMappingsSource(HttpSnapshotSource):
-    """Three release-coherent, byte-faithful NCBI identifier mapping files."""
+    """Three independently dated, byte-faithful NCBI identifier mapping files."""
 
     _dataset = DatasetId("ncbi", "gene_identifier_mappings")
     def __init__(
@@ -151,7 +144,7 @@ class NcbiGeneIdentifierMappingsSource(HttpSnapshotSource):
         if not files:
             raise ValueError("NCBI mapping source must contain at least one file")
         self._files = files
-        self._version_strategy = CoherentLastModifiedStrategy(files)
+        self._version_strategy = NcbiMappingLastModifiedStrategy(files)
 
     @property
     def dataset(self) -> DatasetId:
@@ -174,6 +167,15 @@ class NcbiGeneIdentifierMappingsSource(HttpSnapshotSource):
         version: SourceVersion,
         downloads: tuple[DownloadedSourceFile, ...],
     ) -> SourceValidationResult:
+        observations = {item["file"]: item for item in version.evidence["files"]}
+        for download in downloads:
+            expected = observations[download.spec.name]["last_modified"]
+            actual = download.resource.metadata.header("Last-Modified")
+            if actual != expected:
+                raise SourceValidationError(
+                    f"NCBI mapping file {download.spec.name} Last-Modified changed "
+                    f"during download: expected {expected!r}, received {actual!r}"
+                )
         profiles: dict[str, dict[str, object]] = {}
         for definition in self._files:
             download = require_download(downloads, definition.file.name)
@@ -196,6 +198,22 @@ class NcbiGeneIdentifierMappingsSource(HttpSnapshotSource):
             version,
             metadata={"taxon_id": 9606, "files": profiles},
         )
+
+
+    def validate_confirmation(
+        self, version: SourceVersion, confirmed_version: SourceVersion,
+    ) -> None:
+        super().validate_confirmation(version, confirmed_version)
+        original = {item["file"]: item["last_modified"] for item in version.evidence["files"]}
+        confirmed = {
+            item["file"]: item["last_modified"] for item in confirmed_version.evidence["files"]
+        }
+        for name, timestamp in original.items():
+            if confirmed.get(name) != timestamp:
+                raise SourceValidationError(
+                    f"NCBI mapping file {name} Last-Modified changed during acquisition: "
+                    f"expected {timestamp!r}, received {confirmed.get(name)!r}"
+                )
 
 
 def profile_mapping_gzip(

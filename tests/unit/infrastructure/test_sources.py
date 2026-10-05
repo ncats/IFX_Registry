@@ -265,7 +265,8 @@ def _ncbi_mapping_gateway(files=None) -> FakeHttpGateway:
         content += _ncbi_mapping_row(definition, "10090")
         gateway.payloads[definition.file.url] = gzip.compress(content)
         gateway.download_headers[definition.file.url] = {
-            "content-type": "application/x-gzip"
+            "content-type": "application/x-gzip",
+            "Last-Modified": "Tue, 15 Sep 2026 09:12:00 GMT",
         }
     return gateway
 
@@ -407,7 +408,7 @@ def test_ncbi_human_gene_info_rejects_header_drift(tmp_path: Path) -> None:
     assert not (tmp_path / "ncbi" / "human_gene_info" / "2026-09-15").exists()
 
 
-def test_ncbi_gene_mappings_require_one_coherent_release_date() -> None:
+def test_ncbi_gene_mappings_use_newest_date(tmp_path: Path) -> None:
     files = _small_ncbi_mapping_files()
     gateway = _ncbi_mapping_gateway(files)
     gateway.head_responses[files[-1].file.url] = HttpMetadata(
@@ -416,8 +417,17 @@ def test_ncbi_gene_mappings_require_one_coherent_release_date() -> None:
     )
     source = NcbiGeneIdentifierMappingsSource(gateway, files=files)
 
-    with pytest.raises(SourceValidationError, match="do not share one release date"):
-        source.discover_latest(VersionProbeRequest())
+    gateway.download_headers[files[-1].file.url]["Last-Modified"] = (
+        "Mon, 14 Sep 2026 23:59:00 GMT"
+    )
+    snapshot = source.fetch(FetchRequest(tmp_path))
+    assert snapshot.version.value == "2026-09-15"
+    assert [item["date"] for item in snapshot.version.evidence["files"]] == [
+        "2026-09-15", "2026-09-15", "2026-09-14",
+    ]
+    assert snapshot.version.evidence["files"][-1]["last_modified"] == (
+        "Mon, 14 Sep 2026 23:59:00 GMT"
+    )
 
 
 def test_ncbi_gene_mappings_preserve_and_profile_all_files(tmp_path: Path) -> None:
@@ -432,7 +442,7 @@ def test_ncbi_gene_mappings_preserve_and_profile_all_files(tmp_path: Path) -> No
     assert [str(item.relative_path) for item in snapshot.files] == [
         definition.file.name for definition in files
     ]
-    assert snapshot.version.evidence["method"] == "coherent_multi_file_last_modified"
+    assert snapshot.version.evidence["method"] == "multi_file_max_last_modified"
     assert len(snapshot.version.evidence["files"]) == 3
     for definition in files:
         profile = snapshot.metadata["files"][definition.file.name]
@@ -850,3 +860,45 @@ def test_uniprot_validator_rejects_payload_without_results(tmp_path: Path) -> No
 
     with pytest.raises(SourceValidationError, match="contained no result records"):
         validate_reviewed_in_full(full_path, reviewed_path)
+
+
+@pytest.mark.parametrize("timestamp", [None, "invalid-date"])
+def test_ncbi_mapping_probe_requires_each_timestamp(timestamp) -> None:
+    files = _small_ncbi_mapping_files()
+    gateway = _ncbi_mapping_gateway(files)
+    gateway.head_responses[files[-1].file.url] = HttpMetadata(
+        files[-1].file.url, {} if timestamp is None else {"Last-Modified": timestamp},
+    )
+    with pytest.raises(SourceValidationError, match="Last-Modified"):
+        NcbiGeneIdentifierMappingsSource(gateway, files=files).discover_latest(
+            VersionProbeRequest()
+        )
+
+
+@pytest.mark.parametrize("phase", ["download", "confirmation"])
+@pytest.mark.parametrize("timestamp", [
+    None, "Tue, 15 Sep 2026 10:12:00 GMT", "Mon, 14 Sep 2026 23:59:00 GMT",
+])
+def test_ncbi_mapping_timestamp_change_aborts_acquisition(
+    tmp_path: Path, monkeypatch, phase: str, timestamp: str | None,
+) -> None:
+    files = _small_ncbi_mapping_files()
+    gateway = _ncbi_mapping_gateway(files)
+    changed_url = files[-1].file.url
+    original_download = gateway.download
+
+    def download(url, destination, *, timeout):
+        if url == changed_url:
+            headers = {} if timestamp is None else {"Last-Modified": timestamp}
+            if phase == "download":
+                gateway.download_headers[url] = headers
+            else:
+                gateway.head_responses[url] = HttpMetadata(url, headers)
+        return original_download(url, destination, timeout=timeout)
+
+    monkeypatch.setattr(gateway, "download", download)
+    source = NcbiGeneIdentifierMappingsSource(gateway, files=files)
+    with pytest.raises(SourceValidationError, match="Last-Modified"):
+        source.fetch(FetchRequest(tmp_path))
+    parent = tmp_path / "ncbi" / "gene_identifier_mappings"
+    assert list(parent.iterdir()) == []

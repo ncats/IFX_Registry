@@ -175,3 +175,24 @@ Automated unit and contract tests do not require AWS. Live version probes are
 read-only. Actual Snakemake and ETL executions remain user-run unless explicitly
 delegated. Validation instructions will name the narrow workflow and expected
 file/version comparisons for each cohort.
+
+
+### NCBI mapping freshness (2026-10-02)
+
+Jessica's source-coverage report identified independently published mapping
+files: `gene2refseq.gz` and `gene2ensembl.gz` dated October 2, but
+`gene_refseq_uniprotkb_collab.gz` dated October 1. A shared publication date
+is not an upstream release contract. The mapping adapter now uses the newest
+file date as the snapshot version and preserves each file's full Last-Modified
+header, date, name, and URL in version evidence. All three headers are required.
+Payload parsing, all-taxa scope, and row validation remain unchanged.
+
+Acquisition compares download response timestamps and the final upstream probe
+with the initial per-file timestamps before the shared workspace commits. A
+change in any member, including one that leaves the newest date unchanged,
+aborts acquisition and removes staging. Other HTTP sources retain their
+existing version comparison through the default confirmation hook.
+
+The date-based identity is preserved: this does not distinguish subsequent
+same-day builds after publication, nor detect upstream byte changes made
+without updating Last-Modified. Published snapshots remain immutable.

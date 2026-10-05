@@ -126,7 +126,7 @@ class HttpSnapshotSource(SourceAdapter):
                 ProgressUpdate(stage="confirming", message=self.confirmation_message)
             )
             confirmed_version = self.discover_latest(VersionProbeRequest(timeout=request.timeout))
-            ensure_expected_version(self.dataset, confirmed_version, version)
+            self.validate_confirmation(version, confirmed_version)
             workspace.commit()
 
         return SourceSnapshot(
@@ -168,6 +168,12 @@ class HttpSnapshotSource(SourceAdapter):
     ) -> SourceValidationResult:
         """Validate staged files and optionally enrich their version metadata."""
         return SourceValidationResult(version=version)
+
+    def validate_confirmation(
+        self, version: SourceVersion, confirmed_version: SourceVersion,
+    ) -> None:
+        """Reject an upstream release change before committing staged downloads."""
+        ensure_expected_version(self.dataset, confirmed_version, version)
 
     def file_specs_for(self, version: SourceVersion) -> tuple[HttpFileSpec, ...]:
         """Resolve files for a version; moving-release sources may override this."""
