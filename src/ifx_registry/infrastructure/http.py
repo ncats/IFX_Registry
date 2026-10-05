@@ -64,6 +64,14 @@ class HttpGateway(ABC):
     def get_text(self, url: str, *, timeout: float) -> HttpText:
         """Read a small text resource."""
 
+    def get_text_prefix(self, url: str, *, timeout: float, max_bytes: int) -> HttpText:
+        """Read a bounded UTF-8 prefix; simple gateways may fall back to a full GET."""
+        if max_bytes <= 0:
+            raise ValueError("max_bytes must be positive")
+        response = self.get_text(url, timeout=timeout)
+        return HttpText(response.text.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore"),
+                        response.metadata)
+
     @abstractmethod
     def head(self, url: str, *, timeout: float) -> HttpMetadata:
         """Read response metadata without downloading the response body."""
@@ -148,6 +156,21 @@ class RequestsHttpGateway(HttpGateway):
                 return HttpText(response.text, self._metadata(response))
         except requests.RequestException as error:
             raise SourceAcquisitionError(f"Could not read {url}: {error}") from error
+
+    def get_text_prefix(self, url: str, *, timeout: float, max_bytes: int) -> HttpText:
+        if max_bytes <= 0:
+            raise ValueError("max_bytes must be positive")
+        try:
+            with self._session.get(url, timeout=timeout, stream=True) as response:
+                response.raise_for_status()
+                prefix = bytearray()
+                for chunk in response.iter_content(chunk_size=min(self._chunk_size, max_bytes)):
+                    prefix.extend(chunk[:max_bytes - len(prefix)])
+                    if len(prefix) == max_bytes:
+                        break
+                return HttpText(prefix.decode("utf-8", errors="ignore"), self._metadata(response))
+        except requests.RequestException as error:
+            raise SourceAcquisitionError(f"Could not read prefix of {url}: {error}") from error
 
     def head(self, url: str, *, timeout: float) -> HttpMetadata:
         try:

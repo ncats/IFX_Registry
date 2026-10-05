@@ -245,12 +245,6 @@ LAST_MODIFIED_SOURCES: dict[str, LastModifiedSourceDefinition] = {
         "https://obofoundry.org/ontology/uberon.html",
         "Uses the ontology file's Last-Modified date as its version.",
     ),
-    "go_ontology": LastModifiedSourceDefinition(
-        DatasetId("go", "ontology"),
-        (HttpFileSpec("https://current.geneontology.org/ontology/go-basic.json", "go-basic.json"),),
-        "https://geneontology.org/",
-        "Uses the ontology file's Last-Modified date as its version.",
-    ),
     "go_goa_human_go": LastModifiedSourceDefinition(
         DatasetId("go", "goa_human_go"),
         (

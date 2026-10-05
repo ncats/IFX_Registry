@@ -735,3 +735,26 @@ human seed-membership query also returned no rows. These flags report the
 current RDF assertions, not inferred seed assignments. Streaming validation
 reproduced the consumer CSVs byte-for-byte. These were local validation runs,
 not S3 publications; deployment and publication are separate operator steps.
+
+## GO ontology bundle
+
+New `go:ontology:<ontology-date>-bundle1` snapshots include both `go-basic.json`
+and the publisher's `go.obo`, unchanged. Existing JSON-only date pins remain
+immutable. The adapter discovers the ontology date from the OBO `data-version`
+header, validates it against the basic JSON graph version, and repeats the
+release probe before committing the bundle. File timestamps and GO's overall
+release metadata can differ from the ontology's declared version and are not
+used as substitutes. Version probes read only a bounded prefix of the OBO.
+
+Validation checks JSON structure, OBO term IDs, duplicate terms, minimum term
+coverage, and all three GO roots. On October 5, a full local acquisition of
+`go:ontology:2026-07-26-bundle1` passed with 48,340 OBO terms, 51,986 basic JSON
+GO classes, and 71,498 JSON edges. Both files declare ontology release July 26;
+their HTTP modification timestamps were August 8. This local validation does
+not publish a Registry snapshot.
+
+Harmonizers can consume `go.obo` directly. ODIN still consumes `go-basic.json`;
+notes in its Pharos and Target Graph configurations request evaluating an OBO
+migration. GO core and GO basic differ in relationships, so compare term fields
+and the existing `is_a` edge output before considering removal of JSON from
+future bundles. Do not expand ODIN's relationship selection implicitly.

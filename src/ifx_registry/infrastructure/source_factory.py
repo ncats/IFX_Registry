@@ -25,6 +25,7 @@ from ifx_registry.infrastructure.sources.ensembl import (
     EnsemblHumanBioMartSource,
 )
 from ifx_registry.infrastructure.sources.ensembl_ftp import EnsemblHumanFtpSource
+from ifx_registry.infrastructure.sources.go import GoOntologySource
 from ifx_registry.infrastructure.sources.hgnc import HgncCompleteSetSource
 from ifx_registry.infrastructure.sources.inspected_files import (
     INSPECTED_FILE_SOURCES,
@@ -139,6 +140,7 @@ class BuiltInSourceFactory:
                     EnsemblHumanBioMartSource,
                     expected_file_count=len(ENSEMBL_EXPORTS),
                 ),
+                "go_ontology": SourceFactoryDefinition(GoOntologySource, expected_file_count=2),
                 "hgnc_complete_set": SourceFactoryDefinition(
                     HgncCompleteSetSource,
                     expected_file_count=1,

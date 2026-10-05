@@ -217,7 +217,7 @@ sources:
   - adapter: go_ontology
     enabled: true
     display_name: Gene Ontology
-    description: Core Gene Ontology terms and relationships.
+    description: Core GO OBO and basic GO JSON from the same declared ontology release.
 
   - adapter: go_goa_human_go
     enabled: true

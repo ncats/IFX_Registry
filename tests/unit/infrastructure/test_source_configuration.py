@@ -138,7 +138,7 @@ def test_default_configuration_installs_built_in_sources_in_display_order() -> N
         2,
         2,
         1,
-        1,
+        2,
         1,
         1,
         1,

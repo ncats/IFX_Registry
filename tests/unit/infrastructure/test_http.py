@@ -285,3 +285,18 @@ def test_post_download_streams_to_atomic_final_path(tmp_path: Path) -> None:
     assert session.last_post is not None
     assert session.last_post[1]["json"] == {"id": "cache-42"}
     assert session.last_post[1]["headers"] == {"Accept": "text/csv"}
+
+
+def test_text_prefix_stops_stream_after_requested_bytes() -> None:
+    response = FakeResponse([b"abcd", b"efgh"], stream_error=AssertionError("over-read"))
+    result = _gateway(response).get_text_prefix(
+        "https://example.org/go.obo", timeout=10, max_bytes=6,
+    )
+    assert result.text == "abcdef"
+    assert result.metadata.final_url == response.url
+
+
+def test_text_prefix_wraps_transport_failure() -> None:
+    response = FakeResponse([], status_error=requests.HTTPError("503"))
+    with pytest.raises(SourceAcquisitionError):
+        _gateway(response).get_text_prefix("https://example.org/go.obo", timeout=10, max_bytes=6)
