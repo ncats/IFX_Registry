@@ -6,6 +6,7 @@
     <span class="kind-badge kind-derived">Derived recipe</span>
     <h1>{{ recipe.dataset.source|sourcename }}</h1>
     <p><span class="dataset-name">{{ recipe.dataset.dataset|datasetname }}</span><code>{{ recipe.dataset }}</code></p>
+    {% include "partials/recipe_deprecation.html" %}
 </header>
 <section class="source-detail-card dataset-intro"><span class="eyebrow">Ready to build</span><h2>No registered versions yet</h2><p>This reusable Registry recipe can build its first immutable version from exact registered inputs.</p></section>
 {% if build_options %}

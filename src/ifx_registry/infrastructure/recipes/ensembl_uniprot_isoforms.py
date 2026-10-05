@@ -76,6 +76,11 @@ class EnsemblUniProtIsoformXrefsRecipe(DerivedRecipe):
         return DerivedRecipeDescriptor(
             dataset=DatasetId("ensembl", "uniprot_isoform_xrefs"),
             display_name="Ensembl to UniProt Isoform Xrefs",
+            deprecated=True,
+            deprecation_message=(
+                'Deprecated for new integrations. A direct UniProt SPARQL source without the '
+                'BioMart dependency is planned. Replacement not yet available.'
+            ),
             description=(
                 "Queries the pinned UniProt release for isoform mappings of "
                 "peptide-bearing transcripts in one exact Ensembl BioMart snapshot."

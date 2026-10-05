@@ -62,6 +62,7 @@ from ifx_registry.application.use_cases.source_check_status import (
     SourceCheckStatus,
     VersionCheckPolicy,
 )
+from ifx_registry.domain.derived_builds import DerivedRecipeDescriptor
 from ifx_registry.domain.errors import (
     AcquisitionJobNotFoundError,
     CatalogConsistencyError,
@@ -417,6 +418,12 @@ def create_app(
         name="static",
     )
 
+    def find_recipe_descriptor(dataset: DatasetId) -> DerivedRecipeDescriptor | None:
+        try:
+            return resolved_services.derived_recipes.get_recipe(dataset).descriptor
+        except RegistryError:
+            return None
+
     def find_source_overview(dataset: DatasetId) -> SourceOverview | None:
         return next(
             (
@@ -577,6 +584,10 @@ def create_app(
                 "datasets": datasets,
                 "catalog_error": catalog_error,
                 "source_overviews": source_overviews,
+                "recipe_descriptors": {
+                    item.dataset: item
+                    for item in resolved_services.derived_recipes.list_descriptors()
+                },
                 "available_sources": available_sources,
                 "available_recipes": tuple(
                     recipe
@@ -696,6 +707,10 @@ def create_app(
             context={
                 "active_page": "catalog",
                 "item": published_dataset,
+                "recipe": (
+                    find_recipe_descriptor(published_dataset.dataset)
+                    if kind is CatalogKind.DERIVED else None
+                ),
                 "selected_snapshot": details.selected,
                 "lineage_tree": details.lineage,
                 "lineage_page": "overview",
@@ -795,6 +810,10 @@ def create_app(
             context={
                 "active_page": "catalog",
                 "snapshot": snapshot,
+                "recipe": (
+                    find_recipe_descriptor(snapshot.dataset)
+                    if kind is CatalogKind.DERIVED else None
+                ),
                 "overview": (
                     find_source_overview(snapshot.dataset) if kind is CatalogKind.SOURCE else None
                 ),

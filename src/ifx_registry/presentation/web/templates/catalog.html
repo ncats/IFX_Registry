@@ -78,7 +78,7 @@
                 {% for recipe in available_recipes %}
                     <tr class="source-row">
                         <td class="source-identity"><strong>{{ recipe.dataset.source|sourcename }}</strong><span class="dataset-name">{{ recipe.dataset.dataset|datasetname }}</span><span class="source-id">{{ recipe.dataset }}</span></td>
-                        <td>{{ recipe.description }}</td>
+                        <td>{{ recipe.description }}{% include "partials/recipe_deprecation.html" %}</td>
                         <td>{{ recipe.inputs|length }} exact registered input{% if recipe.inputs|length != 1 %}s{% endif %}</td>
                         <td class="catalog-action"><a class="button secondary" href="{{ root_path }}/datasets/derived/{{ recipe.dataset.source }}/{{ recipe.dataset.dataset }}">Build</a></td>
                     </tr>
@@ -128,6 +128,9 @@
                             <span class="dataset-name">{{ item.dataset.dataset|datasetname }}</span>
                             <span class="source-id">{{ item.dataset }}</span>
                             {% if item.kind.value == "source" %}{% include "partials/source_deprecation.html" %}{% endif %}
+                            {% if item.kind.value == "derived" %}
+                                {% with recipe=recipe_descriptors.get(item.dataset) %}{% include "partials/recipe_deprecation.html" %}{% endwith %}
+                            {% endif %}
                         </td>
                         <td class="catalog-kind"><span class="kind-badge kind-{{ item.kind.value }}">{{ item.kind.value|title }}</span></td>
                         <td class="catalog-latest"><span class="mobile-label">Latest version</span><strong>{{ item.latest.version }}</strong><small>{{ item.latest.published_at|displaytime }}</small></td>

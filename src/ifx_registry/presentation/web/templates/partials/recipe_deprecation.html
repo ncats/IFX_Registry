@@ -1,0 +1,6 @@
+{% if recipe and recipe.deprecated %}
+<div class="source-deprecation">
+    <span class="deprecation-badge">Deprecated</span>
+    <span>{{ recipe.deprecation_message }}</span>
+</div>
+{% endif %}

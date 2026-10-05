@@ -44,6 +44,12 @@ class UniRef100MembershipsRecipe(DerivedRecipe):
         return DerivedRecipeDescriptor(
             dataset=DatasetId("uniprot", "uniref100_memberships"),
             display_name="UniRef100 Protein Memberships",
+            deprecated=True,
+            deprecation_message=(
+                'Deprecated for new integrations. A direct UniProt SPARQL source is planned '
+                'to include identity, seed, and representative fields. Replacement not yet '
+                'available.'
+            ),
             description=(
                 "Projects human UniProt accession-to-UniRef100 cluster mappings "
                 "from an exact UniProt ID-mapping snapshot."

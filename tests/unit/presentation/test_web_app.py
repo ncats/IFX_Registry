@@ -1110,3 +1110,58 @@ async def test_source_deprecation_links_work_before_and_after_publication(
         assert page.status_code == 200
         assert '<span class="deprecation-badge">Deprecated</span>' in page.text
         assert 'href="/registry/#source-example-successor"' in page.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("published", [False, True])
+async def test_recipe_deprecation_visible_without_inventing_replacement_links(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, published: bool,
+) -> None:
+    original = PreviewRecipe.descriptor.fget
+    message = "A direct UniProt SPARQL source is planned. Replacement not yet available."
+    monkeypatch.setattr(PreviewRecipe, "descriptor", property(
+        lambda self: replace(original(self), deprecated=True, deprecation_message=message)
+    ))
+    objects = FakeObjectStore()
+    payload = tmp_path / "records.tsv"
+    payload.write_text("id\n1\n")
+    source = S3PublishedSnapshotRepository(objects).publish(SourceSnapshot(
+        dataset=DatasetId("example", "records"), version=SourceVersion("1"),
+        files=(SnapshotFile(payload, PurePosixPath("records.tsv"), None),),
+    ))
+    if published:
+        descriptor = PreviewRecipe().descriptor
+        S3DerivedSnapshotRepository(objects).publish(DerivedSnapshot(
+            dataset=descriptor.dataset, version=DatasetVersion("1"),
+            files=(DerivedSnapshotFile(payload, PurePosixPath("records.tsv")),),
+            inputs=(SnapshotRef.source(source.snapshot_id),), producer=descriptor.producer,
+            transform=descriptor.transform, validation={"rows": 1},
+        ), (RegisteredSnapshotRef(
+            SnapshotRef.source(source.snapshot_id), source.manifest_uri, source.manifest_sha256,
+        ),))
+    services = _services(tmp_path, objects=objects)
+    recipes = InMemoryDerivedRecipeCatalog((PreviewRecipe(),))
+    sources = S3PublishedSnapshotRepository(objects)
+    derived = S3DerivedSnapshotRepository(objects)
+    external = S3ExternalDatasetVersionRepository(objects)
+    planner = PlanDerivedBuild(recipes, sources, derived, external)
+    services = replace(
+        services, derived_recipes=recipes,
+        get_derived_build_options=GetDerivedBuildOptions(
+            recipes, SQLiteDerivedBuildJobStore(tmp_path / "registry.sqlite3"),
+            sources, derived, external, planner,
+        ),
+    )
+    app = create_app(WebSettings(tmp_path), services)
+    transport = httpx.ASGITransport(app=app)
+    urls = ["/", "/datasets/derived/example/derived_records"]
+    if published:
+        urls.append("/datasets/derived/example/derived_records/1")
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            for url in urls:
+                response = await client.get(url)
+                assert response.status_code == 200
+                assert '<span class="deprecation-badge">Deprecated</span>' in response.text
+                assert message in response.text
+                assert '#source-uniprot-' not in response.text

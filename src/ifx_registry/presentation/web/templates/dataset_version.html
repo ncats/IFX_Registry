@@ -7,6 +7,7 @@
     <h1>{{ snapshot.dataset.source|sourcename }}</h1>
     <p><span class="dataset-name">{{ snapshot.dataset.dataset|datasetname }}</span><code>{{ snapshot.dataset }}:{{ snapshot.version }}</code></p>
     {% include "partials/source_deprecation.html" %}
+    {% include "partials/recipe_deprecation.html" %}
 </header>
 <div class="snapshot-summary">
     <div><span>Version</span><strong>{{ snapshot.version }}</strong></div>
