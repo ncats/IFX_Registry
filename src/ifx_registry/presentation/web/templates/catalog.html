@@ -128,6 +128,7 @@
                             <span class="dataset-name">{{ item.dataset.dataset|datasetname }}</span>
                             <span class="source-id">{{ item.dataset }}</span>
                             {% if item.kind.value == "source" %}{% include "partials/source_deprecation.html" %}{% endif %}
+                            {% with deprecation_kind=item.kind, deprecation_dataset=item.dataset %}{% include "partials/dataset_deprecation.html" %}{% endwith %}
                             {% if item.kind.value == "derived" %}
                                 {% with recipe=recipe_descriptors.get(item.dataset) %}{% include "partials/recipe_deprecation.html" %}{% endwith %}
                             {% endif %}

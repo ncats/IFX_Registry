@@ -1,0 +1,8 @@
+{% set notice = dataset_deprecations.get((deprecation_kind, deprecation_dataset)) %}
+{% if notice %}
+<div class="source-deprecation">
+    <span class="deprecation-badge">Deprecated</span>
+    <span>{{ notice.message }}</span>
+    <span>Replacement: <a href="{{ root_path }}/datasets/{{ notice.replacement_kind.value }}/{{ notice.replacement.source }}/{{ notice.replacement.dataset }}">{{ notice.replacement }}</a>.</span>
+</div>
+{% endif %}

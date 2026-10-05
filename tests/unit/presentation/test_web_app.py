@@ -1181,3 +1181,59 @@ async def test_recipe_deprecation_links(
                     assert 'href="/#source-uniprot-human_uniref100_sparql"' in response.text
                 else:
                     assert '#source-uniprot-' not in response.text
+
+
+@pytest.mark.anyio
+async def test_drugcentral_external_deprecation_preserves_published_versions(
+    tmp_path: Path,
+) -> None:
+    objects = FakeObjectStore()
+    repository = S3ExternalDatasetVersionRepository(objects)
+    legacy = repository.publish(
+        ExternalDatasetVersion(
+            dataset=DatasetId("drugcentral", "drug_database"),
+            version=DatasetVersion("54"),
+            interface="postgresql",
+            access_mode="query",
+            service_name="DrugCentral",
+            observed_at=datetime(2026, 9, 10, tzinfo=UTC),
+        )
+    )
+    replacement_file = tmp_path / "exports.tsv"
+    replacement_file.write_text("ID\n1\n", encoding="utf-8")
+    S3PublishedSnapshotRepository(objects).publish(
+        SourceSnapshot(
+            dataset=DatasetId("drugcentral", "drug_exports"),
+            version=SourceVersion("56-export1"),
+            files=(
+                SnapshotFile(
+                    replacement_file, PurePosixPath("exports.tsv"),
+                    "https://example.org/exports.tsv",
+                ),
+            ),
+        )
+    )
+    app = create_app(
+        WebSettings(tmp_path, root_path="/registry"), _services(tmp_path, objects=objects)
+    )
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            for path in (
+                "/",
+                "/datasets/external/drugcentral/drug_database",
+                "/datasets/external/drugcentral/drug_database/54",
+            ):
+                response = await client.get(path)
+                assert response.status_code == 200
+                assert '<span class="deprecation-badge">Deprecated</span>' in response.text
+                assert "SQL consumers must migrate" in response.text
+                assert (
+                    'href="/registry/datasets/source/drugcentral/drug_exports"'
+                    in response.text
+                )
+            replacement = await client.get("/datasets/source/drugcentral/drug_exports")
+            assert replacement.status_code == 200
+            assert '<span class="deprecation-badge">Deprecated</span>' not in replacement.text
+    assert repository.get(legacy.dataset, "54") == legacy

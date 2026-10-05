@@ -313,6 +313,12 @@ attempts never appear in the catalog.
 
 ## Register an External Dataset Version
 
+The legacy external dataset `drugcentral:drug_database` is deprecated for new
+integrations in favor of the source snapshot `drugcentral:drug_exports`.
+SQL consumers must migrate to the export file contract. The catalog and detail
+pages show a deprecation notice; existing external versions and exact pins remain
+available, and their immutable manifests are unchanged.
+
 External registrations describe a version that Registry does not store, such
 as a database schema or service release:
 

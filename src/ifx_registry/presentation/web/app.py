@@ -78,6 +78,7 @@ from ifx_registry.infrastructure.aws_credentials import (
     load_aws_credentials,
 )
 from ifx_registry.infrastructure.cure_credentials import load_cure_credentials
+from ifx_registry.infrastructure.dataset_deprecations import DATASET_DEPRECATIONS
 from ifx_registry.infrastructure.derived_build_job_store import SQLiteDerivedBuildJobStore
 from ifx_registry.infrastructure.derived_recipe_catalog import InMemoryDerivedRecipeCatalog
 from ifx_registry.infrastructure.http import RequestsHttpGateway
@@ -401,6 +402,7 @@ def create_app(
     )
     templates = Jinja2Templates(directory=_WEB_ROOT / "templates")
     templates.env.globals["root_path"] = resolved_settings.root_path
+    templates.env.globals["dataset_deprecations"] = DATASET_DEPRECATIONS
     display_timezone = ZoneInfo(resolved_settings.display_timezone)
     templates.env.filters["displaytime"] = lambda value: _format_datetime(
         value, display_timezone
