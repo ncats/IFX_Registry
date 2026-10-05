@@ -758,3 +758,14 @@ notes in its Pharos and Target Graph configurations request evaluating an OBO
 migration. GO core and GO basic differ in relationships, so compare term fields
 and the existing `is_a` edge output before considering removal of JSON from
 future bundles. Do not expand ODIN's relationship selection implicitly.
+
+## ChEBI build versions
+
+New `chebi:ontology_full` snapshots use `<release>-<README-update-date>`
+(for example, `255-2026-09-09`) so upstream rebuilds under the same release
+number get distinct immutable identities. Discovery reads only the small
+ontology README. Full acquisition validates the OBO release against the
+original release number and rechecks the README before committing. Existing
+release-only snapshots remain available for materialization; new acquisition
+requires the dated version. This detects changes advertised by the README,
+not silent content changes that preserve both its release and update date.

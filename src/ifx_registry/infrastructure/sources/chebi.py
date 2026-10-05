@@ -31,10 +31,17 @@ def parse_chebi_release(text: str) -> SourceVersion:
     updated = re.search(r"Date of last update:\s*(\d{4}-\d{2}-\d{2})", text)
     if release is None or updated is None:
         raise SourceValidationError("Could not parse the ChEBI release README")
+    try:
+        update_date = date.fromisoformat(updated.group(1))
+    except ValueError as exc:
+        raise SourceValidationError("Invalid ChEBI README update date") from exc
     return SourceVersion(
-        release.group(1),
-        version_date=date.fromisoformat(updated.group(1)),
-        evidence={"readme_update_date": updated.group(1)},
+        f"{release.group(1)}-{update_date.isoformat()}",
+        version_date=update_date,
+        evidence={
+            "readme_release": release.group(1),
+            "readme_update_date": update_date.isoformat(),
+        },
     )
 
 
@@ -45,7 +52,8 @@ class ChebiFullOntologySource(HttpSnapshotSource):
             CHEBI_README_URL,
             parse_chebi_release,
             "chebi_release_readme",
-            "Reads the release number and date from ChEBI's ontology README, then "
+            "Uses the release number and update date from ChEBI's small ontology README "
+            "to distinguish same-release rebuilds without downloading the ontology, then "
             "confirms that the downloaded ontology declares the same release.",
         )
 
@@ -83,9 +91,10 @@ class ChebiFullOntologySource(HttpSnapshotSource):
                     raw_date = line.split(":", 1)[1].strip()
                 if data_version and raw_date:
                     break
-        if data_version != version.value:
+        release = version.evidence["readme_release"]
+        if data_version != release:
             raise SourceValidationError(
-                f"ChEBI README release {version.value} does not match ontology "
+                f"ChEBI README release {release} does not match ontology "
                 f"data-version {data_version!r}"
             )
         ontology_date = _parse_obo_date(raw_date)
