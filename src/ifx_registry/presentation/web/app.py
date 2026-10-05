@@ -539,7 +539,9 @@ def create_app(
         source_overviews = {overview.descriptor.dataset: overview for overview in overviews}
         available_sources = (
             tuple(
-                overview for overview in overviews if overview.descriptor.dataset not in registered
+                overview for overview in overviews
+                if overview.descriptor.dataset not in registered
+                and not overview.descriptor.deprecated
             )
             if catalog_error is None
             else ()
@@ -592,7 +594,7 @@ def create_app(
                 "available_recipes": tuple(
                     recipe
                     for recipe in resolved_services.derived_recipes.list_descriptors()
-                    if recipe.dataset
+                    if not recipe.deprecated and recipe.dataset
                     not in {
                         item.dataset
                         for item in datasets

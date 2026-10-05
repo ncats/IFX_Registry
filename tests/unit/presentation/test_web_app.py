@@ -1106,6 +1106,10 @@ async def test_source_deprecation_links_work_before_and_after_publication(
                 pages += [await client.get("/registry/datasets/source/example/records"),
                           await client.get("/registry/datasets/source/example/records/1")]
     assert 'id="source-example-successor"' in catalog.text
+    if not published:
+        assert 'id="source-example-records"' not in catalog.text
+        assert '<span class="deprecation-badge">Deprecated</span>' not in catalog.text
+        pages = []
     for page in pages:
         assert page.status_code == 200
         assert '<span class="deprecation-badge">Deprecated</span>' in page.text
@@ -1166,6 +1170,11 @@ async def test_recipe_deprecation_links(
             for url in urls:
                 response = await client.get(url)
                 assert response.status_code == 200
+                if url == "/" and not published:
+                    assert "Derived datasets available to build" not in response.text
+                    assert "/datasets/derived/example/derived_records" not in response.text
+                    assert message not in response.text
+                    continue
                 assert '<span class="deprecation-badge">Deprecated</span>' in response.text
                 assert message in response.text
                 if has_replacement:

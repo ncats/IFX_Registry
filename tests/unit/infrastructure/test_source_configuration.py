@@ -344,3 +344,12 @@ def test_invalid_deprecation_configuration_is_rejected(tmp_path: Path, fields: s
     )
     with pytest.raises(SourceConfigurationError):
         _loader().load(configuration)
+
+
+def test_human_isoforms_is_deprecated_with_ftp_replacement() -> None:
+    catalog = _loader().load(DEFAULT_SOURCE_CONFIGURATION)
+    descriptors = {item.dataset: item for item in catalog.list_descriptors()}
+    legacy = descriptors[DatasetId("uniprot", "human_isoforms")]
+    assert legacy.deprecated
+    assert legacy.replacement == DatasetId("uniprot", "human_reference_proteome_gene_centric")
+    assert not descriptors[legacy.replacement].deprecated

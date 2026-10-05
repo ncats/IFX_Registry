@@ -39,9 +39,13 @@ sources:
   - adapter: uniprot_human_isoforms
     enabled: true
     display_name: UniProt Human Isoforms
+    deprecated: true
+    replacement: uniprot:human_reference_proteome_gene_centric
     description: >-
-      Canonical and computationally mapped human isoform exports generated from
-      one verified UniProt SPARQL release.
+      Deprecated for new integrations. Use the gene-centric reference-proteome
+      FTP bundle for canonical and additional sequences; its different file
+      contract requires consumer migration. Retained for existing snapshots
+      and the deprecated Ensembl-UniProt isoform recipe.
 
   - adapter: uniprot_human_uniref100_sparql
     enabled: true

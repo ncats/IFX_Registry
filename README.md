@@ -709,8 +709,17 @@ Harmonizers must still switch its acquisition/cache handling and select its
 own desired subset. Its UniRef workflow currently uses `noncanonical_with_parents`,
 and its Ensembl SPARQL enrichment is disabled by default. Adding these sources
 does not enable that step or change consumer pins. Deprecated recipes and their
-existing snapshots remain available; the separate `uniprot:human_isoforms`
-source is unchanged.
+existing snapshots remain available. `uniprot:human_isoforms` is also deprecated:
+Harmonizers now uses the gene-centric reference-proteome FTP bundle for those
+inputs. The replacement has a different file contract and requires consumer
+migration. Its remaining Registry dependency is the deprecated Ensembl isoform
+recipe, which uses its version as a release pin.
+
+Deprecated sources and recipes are omitted from the catalog's **Sources
+available to register** and **Derived datasets available to build** lists.
+Already registered datasets remain visible with their deprecation notices,
+version history, files, and lineage. Adapters and recipes remain installed for
+existing pinned workflows and direct access.
 
 Contracts inspected: IFX_Harmonizers `origin/main` at `1f472b9`,
 `src/code/publicdata/target_data/{uniprot_uniref100_xref,ensembl_uniprot_isoform_xref}.py`
