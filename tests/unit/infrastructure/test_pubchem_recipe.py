@@ -264,6 +264,40 @@ def test_requests_client_accepts_a_title_row_without_title_text() -> None:
         {"CID": 25}, {"CID": 26, "Title": "Named compound"}]
 
 
+@pytest.mark.parametrize("title_row", [None, {"CID": 25, "Title": 42}])
+def test_requests_client_rejects_missing_or_invalid_title_row(title_row) -> None:
+    class Response:
+        status_code = 200
+        text = ""
+        headers: dict[str, str] = {}
+
+        def __init__(self, payload):  # type: ignore[no-untyped-def]
+            self.payload = payload
+
+        def json(self):  # type: ignore[no-untyped-def]
+            return self.payload
+
+    class Session:
+        headers: dict[str, str] = {}
+
+        @staticmethod
+        def get(url, *, timeout):  # type: ignore[no-untyped-def]
+            if url.endswith("/property/Title/JSON"):
+                rows = [{"CID": 26, "Title": "Named compound"}]
+                if title_row is not None:
+                    rows.append(title_row)
+                return Response({"PropertyTable": {"Properties": rows}})
+            return Response({"PC_Compounds": [
+                {"id": {"id": {"cid": 25}}},
+                {"id": {"id": {"cid": 26}}},
+            ]})
+
+    client = RequestsPubchemCompoundClient(  # type: ignore[arg-type]
+        Session(), sleep=lambda seconds: None, jitter=lambda upper: 0)
+    with pytest.raises(InvalidDerivedBuildError, match="omitted requested CID: 25"):
+        client.fetch_batch(("25", "26"), timeout=120)
+
+
 def test_requests_client_honors_retry_after_and_records_evidence() -> None:
     class Response:
         text = ""
