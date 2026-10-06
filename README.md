@@ -13,7 +13,7 @@ Until the package moves to an approved package index, pin an immutable Git tag
 in the consuming project's `requirements.txt`:
 
 ```text
-ifx-registry @ git+https://github.com/ncats/IFX_Registry.git@v0.2.0
+ifx-registry @ git+https://github.com/ncats/IFX_Registry.git@v0.3.5
 ```
 
 Then install that project's requirements normally. The default package contains
