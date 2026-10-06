@@ -232,6 +232,38 @@ def test_requests_client_pins_pubchem_title_for_exact_cids() -> None:
     assert result.title_evidence.request_count == 1
 
 
+def test_requests_client_accepts_a_title_row_without_title_text() -> None:
+    class Response:
+        status_code = 200
+        text = ""
+        headers: dict[str, str] = {}
+
+        def __init__(self, payload):  # type: ignore[no-untyped-def]
+            self.payload = payload
+
+        def json(self):  # type: ignore[no-untyped-def]
+            return self.payload
+
+    class Session:
+        headers: dict[str, str] = {}
+
+        @staticmethod
+        def get(url, *, timeout):  # type: ignore[no-untyped-def]
+            if url.endswith("/property/Title/JSON"):
+                return Response({"PropertyTable": {"Properties": [
+                    {"CID": 25}, {"CID": 26, "Title": "Named compound"}]}})
+            return Response({"PC_Compounds": [
+                {"id": {"id": {"cid": 25}}},
+                {"id": {"id": {"cid": 26}}},
+            ]})
+
+    result = RequestsPubchemCompoundClient(  # type: ignore[arg-type]
+        Session(), sleep=lambda seconds: None).fetch_batch(("25", "26"), timeout=120)
+    assert result.statuses == {"25": ("ok", "200", ""), "26": ("ok", "200", "")}
+    assert result.payload["PropertyTable"]["Properties"] == [
+        {"CID": 25}, {"CID": 26, "Title": "Named compound"}]
+
+
 def test_requests_client_honors_retry_after_and_records_evidence() -> None:
     class Response:
         text = ""
@@ -458,6 +490,36 @@ def test_new_molecular_recipe_rejects_old_records_without_pinned_titles(tmp_path
             {slot.name: MaterializedRecipeInput(slot, registered, input_dir)},
             tmp_path / "output", NullProgressReporter(),
         )
+
+
+def test_molecular_recipe_preserves_compound_without_pubchem_title(tmp_path) -> None:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "pubchem_compound_records_manifest.tsv").write_text(
+        "batch_file\tstatus\nrecords.json.gz\tok\n", encoding="utf-8")
+    payload = {
+        "PC_Compounds": [
+            {"id": {"id": {"cid": 25}}},
+            {"id": {"id": {"cid": 26}}},
+        ],
+        "PropertyTable": {"Properties": [
+            {"CID": 25}, {"CID": 26, "Title": "Named compound"}]},
+    }
+    with gzip.open(input_dir / "records.json.gz", "wt", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+    recipe = PubchemCidMolecularInfoRecipe()
+    slot = recipe.descriptor.inputs[0]
+    registered = RegisteredSnapshotRef(
+        SnapshotRef.derived("pubchem:compound_records:with-title-response"),
+        "s3://registry/manifest.yaml", "a" * 64)
+    product = recipe.build(
+        {slot.name: MaterializedRecipeInput(slot, registered, input_dir)},
+        tmp_path / "output", NullProgressReporter())
+    with product.files[0].local_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    assert [(row["cid"], row["title"]) for row in rows] == [
+        ("25", ""), ("26", "Named compound")]
+    assert product.validation["with_title_count"] == 1
 
 
 @pytest.mark.parametrize("batch_file", ["../outside.json.gz", "/tmp/outside.json.gz"])

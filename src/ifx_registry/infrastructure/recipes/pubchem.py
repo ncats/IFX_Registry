@@ -714,7 +714,8 @@ def _returned_title_cids(payload: Mapping[str, Any]) -> set[str]:
         if not isinstance(row, dict):
             continue
         cid, title = row.get("CID"), row.get("Title")
-        if isinstance(cid, int) and cid >= 0 and isinstance(title, str) and title.strip():
+        if (isinstance(cid, int) and cid >= 0
+                and (title is None or isinstance(title, str))):
             result.add(str(cid))
     return result
 
@@ -1109,11 +1110,12 @@ def _molecular_info_rows(records_dir: Path) -> list[dict[str, str]]:
                 raise InvalidDerivedBuildError(f"Invalid PubChem Title row in {batch_file}")
             cid = str(item["CID"])
             title = item.get("Title")
-            if not isinstance(title, str) or not title.strip():
-                raise InvalidDerivedBuildError(f"Missing PubChem Title for CID {cid}")
-            if cid in titles and titles[cid] != title.strip():
+            if title is not None and not isinstance(title, str):
+                raise InvalidDerivedBuildError(f"Invalid PubChem Title for CID {cid}")
+            clean_title = title.strip() if title else ""
+            if cid in titles and titles[cid] != clean_title:
                 raise InvalidDerivedBuildError(f"Conflicting PubChem Titles for CID {cid}")
-            titles[cid] = title.strip()
+            titles[cid] = clean_title
         for compound in payload.get("PC_Compounds", []) or []:
             row = _molecular_info_row(compound)
             if row["cid"]:
