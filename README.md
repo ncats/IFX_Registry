@@ -13,7 +13,7 @@ Until the package moves to an approved package index, pin an immutable Git tag
 in the consuming project's `requirements.txt`:
 
 ```text
-ifx-registry @ git+https://github.com/ncats/IFX_Registry.git@v0.3.5
+ifx-registry @ git+https://github.com/ncats/IFX_Registry.git@v0.3.6
 ```
 
 Then install that project's requirements normally. The default package contains
@@ -152,6 +152,13 @@ that window they do not probe the upstream provider, avoiding false refreshes
 from a repackaged-but-unchanged archive. An older consumer pin is still
 reported with the newest already-registered replacement. Release-numbered,
 checksum, and manually versioned sources continue to receive live checks.
+
+If a live upstream check fails, an existing source pin is `unverifiable`, with
+no replacement recommendation. The audit preserves the failure as a caveat;
+registration order is not evidence of source version order. Retry the check
+instead of changing pins based on when snapshots were registered. Derived
+artifacts depending on that source are also unverifiable. A missing exact pin
+remains blocked.
 
 Manual source-version methods are retained as typed audit caveats rather than
 being mistaken for automatic freshness checks. Known actions take precedence:

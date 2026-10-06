@@ -41,13 +41,13 @@ from ifx_registry.domain.models import (
 
 _RECORDS_MANIFEST = "pubchem_compound_records_manifest.tsv"
 _OUTPUT_FILE = "cid_molecular_info.tsv"
-_RECIPE_DIGEST = hashlib.sha256(b"ifx-registry:pubchem-cid-molecular-info:v1").hexdigest()
+_RECIPE_DIGEST = hashlib.sha256(b"ifx-registry:pubchem-cid-molecular-info:v2").hexdigest()
 _CID_SET_FILE = "pubchem_compound_cids.tsv"
 _CID_SET_RECIPE_DIGEST = hashlib.sha256(
     b"ifx-registry:pubchem-compound-cid-set:v1"
 ).hexdigest()
 _COMPOUND_RECORDS_RECIPE_DIGEST = hashlib.sha256(
-    b"ifx-registry:pubchem-compound-records:v1"
+    b"ifx-registry:pubchem-compound-records:v2"
 ).hexdigest()
 _PUBCHEM_ID_RE = re.compile(
     r"^(?:PUBCHEM\.COMPOUND:|pubchem:)?(?:CID)?(\d+)$",
@@ -181,6 +181,7 @@ class PubchemBatchResult:
     payload: Mapping[str, Any]
     statuses: Mapping[str, tuple[str, str, str]]
     evidence: PubchemServiceEvidence | None = None
+    title_evidence: PubchemServiceEvidence | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -277,18 +278,41 @@ class RequestsPubchemCompoundClient:
             allow_not_found=True,
         )
         if status_code == 404:
-            return self._fetch_individually(
+            records = self._fetch_individually(
                 cids,
                 timeout=timeout,
                 batch_error="PubChem could not resolve the complete CID batch",
                 batch_evidence=evidence,
             )
-        if payload is None:
-            raise InvalidDerivedBuildError("PubChem returned no compound payload")
+        else:
+            if payload is None:
+                raise InvalidDerivedBuildError("PubChem returned no compound payload")
+            records = PubchemBatchResult(
+                payload,
+                {cid: ("ok", str(status_code), "") for cid in cids},
+                evidence,
+            )
+        found_cids = [cid for cid in cids if records.statuses[cid][0] == "ok"]
+        if not found_cids:
+            return PubchemBatchResult(
+                {**records.payload, "PropertyTable": {"Properties": []}},
+                records.statuses,
+                records.evidence,
+            )
+        title_payload, _title_status, title_evidence = self._request_exact_cids(
+            _pubchem_title_url(found_cids),
+            found_cids,
+            timeout=timeout,
+            allow_not_found=False,
+            title=True,
+        )
+        if title_payload is None:
+            raise InvalidDerivedBuildError("PubChem returned no Title payload")
         return PubchemBatchResult(
-            payload,
-            {cid: ("ok", str(status_code), "") for cid in cids},
-            evidence,
+            {**records.payload, "PropertyTable": title_payload["PropertyTable"]},
+            records.statuses,
+            records.evidence,
+            title_evidence,
         )
 
     def _request_exact_cids(
@@ -298,6 +322,7 @@ class RequestsPubchemCompoundClient:
         *,
         timeout: float,
         allow_not_found: bool,
+        title: bool = False,
     ) -> tuple[Mapping[str, Any] | None, int, PubchemServiceEvidence]:
         attempts: list[_RequestAttempt] = []
         retry_wait = 0.0
@@ -323,7 +348,7 @@ class RequestsPubchemCompoundClient:
                         last_error = f"PubChem returned invalid JSON: {error}"
                     else:
                         if isinstance(candidate, dict):
-                            statuses = _statuses_for_payload(cids, candidate, "200")
+                            statuses = _statuses_for_payload(cids, candidate, "200", title=title)
                             errors = [
                                 value[2]
                                 for value in statuses.values()
@@ -434,7 +459,7 @@ class PubchemCompoundRecordsRecipe(DerivedRecipe):
                 "Retrieves canonical PubChem compound records for an exact registered "
                 "compound CID set."
             ),
-            revision="1",
+            revision="2",
             inputs=(
                 RecipeInputSlot(
                     "compound_cids",
@@ -451,7 +476,7 @@ class PubchemCompoundRecordsRecipe(DerivedRecipe):
             ),
             transform={
                 "name": "pubchem_compound_records",
-                "version": 1,
+                "version": 2,
                 "batch_size": 100,
                 "delay_seconds": 0.25,
                 "timeout_seconds": 120,
@@ -479,7 +504,9 @@ class PubchemCompoundRecordsRecipe(DerivedRecipe):
         ]
         counts = {"ok": 0, "not_found": 0, "error": 0}
         service_evidence: list[PubchemServiceEvidence] = []
+        title_service_evidence: list[PubchemServiceEvidence] = []
         payload_digests: list[str] = []
+        title_payload_digests: list[str] = []
         batches = tuple(_chunks(cids, 100))
         with manifest_path.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.writer(handle, delimiter="\t")
@@ -507,13 +534,34 @@ class PubchemCompoundRecordsRecipe(DerivedRecipe):
                     batch_cids,
                     timeout=120,
                 )
+                if not isinstance(result.payload.get("PropertyTable"), dict):
+                    raise InvalidDerivedBuildError(
+                        "PubChem client returned compound records without pinned Title evidence"
+                    )
+                titled = _returned_title_cids(result.payload)
+                expected_titles = {cid for cid in batch_cids
+                                   if result.statuses.get(cid, ("error", "", ""))[0] == "ok"}
+                if titled != expected_titles:
+                    raise InvalidDerivedBuildError(
+                        "PubChem Title response does not match successful compound CIDs"
+                    )
                 if result.evidence is not None:
                     service_evidence.append(result.evidence)
+                if result.title_evidence is not None:
+                    title_service_evidence.append(result.title_evidence)
+                title_payload_digests.append(hashlib.sha256(json.dumps(
+                    result.payload["PropertyTable"], sort_keys=True,
+                    separators=(",", ":"), ensure_ascii=False,
+                ).encode("utf-8")).hexdigest())
                 batch_name = f"pubchem_compound_records_batch_{batch_number:06d}.json.gz"
                 batch_path = destination / batch_name
                 _write_deterministic_gzip_json(batch_path, result.payload)
                 batch_sha = _sha256_file(batch_path)
-                payload_digests.append(batch_sha)
+                payload_digests.append(hashlib.sha256(json.dumps(
+                    {key: value for key, value in result.payload.items()
+                     if key != "PropertyTable"},
+                    sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                ).encode("utf-8")).hexdigest())
                 output_files.append(
                     DerivedSnapshotFile(
                         batch_path,
@@ -567,6 +615,29 @@ class PubchemCompoundRecordsRecipe(DerivedRecipe):
                     ).hexdigest(),
                 ),
             )
+        if title_service_evidence:
+            evidence = _merge_service_evidence(title_service_evidence)
+            observations += (
+                ServiceObservation(
+                    service_id="pubchem:pug_rest",
+                    service_name="PubChem PUG REST",
+                    interface="https",
+                    operation="compound Title property by CID",
+                    endpoint_template=(
+                        "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/"
+                        "{comma-separated-cids}/property/Title/JSON"
+                    ),
+                    first_observed_at=evidence.first_observed_at,
+                    last_observed_at=evidence.last_observed_at,
+                    request_count=evidence.request_count,
+                    retry_count=evidence.retry_count,
+                    http_status_counts=evidence.http_status_counts,
+                    worst_throttle=evidence.worst_throttle,
+                    response_payload_sha256=hashlib.sha256(
+                        "\n".join(title_payload_digests).encode("ascii")
+                    ).hexdigest(),
+                ),
+            )
         return DerivedRecipeProduct(
             files=tuple(output_files),
             validation={
@@ -584,9 +655,11 @@ def _statuses_for_payload(
     requested_cids: Sequence[str],
     payload: Mapping[str, Any],
     http_status: str,
+    *,
+    title: bool = False,
 ) -> dict[str, tuple[str, str, str]]:
     requested = set(requested_cids)
-    returned = _returned_cids(payload)
+    returned = _returned_title_cids(payload) if title else _returned_cids(payload)
     unexpected = returned - requested
     if unexpected:
         detail = ", ".join(sorted(unexpected, key=int)[:10])
@@ -628,6 +701,20 @@ def _returned_cids(payload: Mapping[str, Any]) -> set[str]:
             continue
         cid = nested.get("cid")
         if isinstance(cid, int) and cid >= 0:
+            result.add(str(cid))
+    return result
+
+
+def _returned_title_cids(payload: Mapping[str, Any]) -> set[str]:
+    table = payload.get("PropertyTable")
+    if not isinstance(table, dict) or not isinstance(table.get("Properties"), list):
+        return set()
+    result: set[str] = set()
+    for row in table["Properties"]:
+        if not isinstance(row, dict):
+            continue
+        cid, title = row.get("CID"), row.get("Title")
+        if isinstance(cid, int) and cid >= 0 and isinstance(title, str) and title.strip():
             result.add(str(cid))
     return result
 
@@ -720,7 +807,7 @@ class PubchemCidMolecularInfoRecipe(DerivedRecipe):
                 "Extracts identifiers, structures, formulas, masses, and names from "
                 "registered PubChem compound records."
             ),
-            revision="1",
+            revision="2",
             inputs=(
                 RecipeInputSlot(
                     "compound_records",
@@ -735,7 +822,7 @@ class PubchemCidMolecularInfoRecipe(DerivedRecipe):
                 "https://github.com/ncats/IFX_Registry",
                 f"sha256:{_RECIPE_DIGEST}",
             ),
-            transform={"name": "pubchem_cid_molecular_info", "version": 1},
+            transform={"name": "pubchem_cid_molecular_info", "version": 2},
         )
 
     def build(
@@ -765,6 +852,7 @@ class PubchemCidMolecularInfoRecipe(DerivedRecipe):
             "isomeric_smiles",
             "inchi",
             "iupac_name",
+            "title",
         )
         with output_path.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, delimiter="\t", fieldnames=fieldnames)
@@ -784,6 +872,7 @@ class PubchemCidMolecularInfoRecipe(DerivedRecipe):
                 "with_monoisotopic_mass_count": sum(
                     1 for row in rows if row.get("monoisotopic_mass")
                 ),
+                "with_title_count": sum(1 for row in rows if row.get("title")),
             },
         )
 
@@ -801,6 +890,13 @@ def _pubchem_url(cids: Sequence[str]) -> str:
     return (
         "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/"
         f"{','.join(cids)}/JSON"
+    )
+
+
+def _pubchem_title_url(cids: Sequence[str]) -> str:
+    return (
+        "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/"
+        f"{','.join(cids)}/property/Title/JSON"
     )
 
 
@@ -1001,9 +1097,31 @@ def _molecular_info_rows(records_dir: Path) -> list[dict[str, str]]:
             )
         with gzip.open(path, "rt", encoding="utf-8") as handle:
             payload = json.load(handle)
+        table = payload.get("PropertyTable")
+        if not isinstance(table, dict) or not isinstance(table.get("Properties"), list):
+            raise InvalidDerivedBuildError(
+                f"PubChem record batch {batch_file} lacks pinned Title evidence; "
+                "build a new compound-record snapshot"
+            )
+        titles: dict[str, str] = {}
+        for item in table["Properties"]:
+            if not isinstance(item, dict) or not isinstance(item.get("CID"), int):
+                raise InvalidDerivedBuildError(f"Invalid PubChem Title row in {batch_file}")
+            cid = str(item["CID"])
+            title = item.get("Title")
+            if not isinstance(title, str) or not title.strip():
+                raise InvalidDerivedBuildError(f"Missing PubChem Title for CID {cid}")
+            if cid in titles and titles[cid] != title.strip():
+                raise InvalidDerivedBuildError(f"Conflicting PubChem Titles for CID {cid}")
+            titles[cid] = title.strip()
         for compound in payload.get("PC_Compounds", []) or []:
             row = _molecular_info_row(compound)
             if row["cid"]:
+                if row["cid"] not in titles:
+                    raise InvalidDerivedBuildError(
+                        f"PubChem record batch {batch_file} lacks Title for CID {row['cid']}"
+                    )
+                row["title"] = titles[row["cid"]]
                 rows[row["cid"]] = row
     if not rows:
         raise InvalidDerivedBuildError(
@@ -1026,6 +1144,7 @@ def _molecular_info_row(compound: Mapping[str, Any]) -> dict[str, str]:
         "isomeric_smiles": "",
         "inchi": "",
         "iupac_name": "",
+        "title": "",
     }
     for prop in compound.get("props", []) or []:
         urn = prop.get("urn") or {}

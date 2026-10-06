@@ -88,11 +88,21 @@ def test_compound_records_recipe_fetches_batches_and_writes_a_manifest(tmp_path)
             assert timeout == 120
             self.calls.append(tuple(cids))
             return PubchemBatchResult(
-                {"PC_Compounds": [{"id": {"id": {"cid": int(cid)}}} for cid in cids]},
+                {"PC_Compounds": [{"id": {"id": {"cid": int(cid)}}} for cid in cids],
+                 "PropertyTable": {"Properties": [
+                     {"CID": int(cid), "Title": f"Title {cid}"} for cid in cids]}},
                 {cid: ("ok", "200", "") for cid in cids},
                 PubchemServiceEvidence(
                     datetime(2026, 9, 10, 12, tzinfo=UTC),
                     datetime(2026, 9, 10, 12, 0, 1, tzinfo=UTC),
+                    1,
+                    0,
+                    {"200": 1},
+                    "green",
+                ),
+                PubchemServiceEvidence(
+                    datetime(2026, 9, 10, 12, 0, 2, tzinfo=UTC),
+                    datetime(2026, 9, 10, 12, 0, 3, tzinfo=UTC),
                     1,
                     0,
                     {"200": 1},
@@ -128,9 +138,10 @@ def test_compound_records_recipe_fetches_batches_and_writes_a_manifest(tmp_path)
     assert [row["cid"] for row in rows] == ["1", "2"]
     assert all(row["status"] == "ok" for row in rows)
     assert product.validation["ok_cid_count"] == 2
-    assert len(product.observations) == 1
+    assert len(product.observations) == 2
     assert product.observations[0].service_id == "pubchem:pug_rest"
     assert product.observations[0].request_count == 1
+    assert product.observations[1].operation == "compound Title property by CID"
 
     repeated = recipe.build(
         {cid_slot.name: MaterializedRecipeInput(cid_slot, registered, input_dir)},
@@ -179,6 +190,48 @@ def test_requests_client_retries_partial_success_then_fails_closed() -> None:
     assert sleeps == [0.25, 0.25, 0.25, 0.25]
 
 
+def test_requests_client_pins_pubchem_title_for_exact_cids() -> None:
+    class Response:
+        status_code = 200
+        text = ""
+        headers: dict[str, str] = {}
+
+        def __init__(self, payload):  # type: ignore[no-untyped-def]
+            self.payload = payload
+
+        def json(self):  # type: ignore[no-untyped-def]
+            return self.payload
+
+    class Session:
+        headers: dict[str, str] = {}
+        urls: list[str] = []
+
+        @staticmethod
+        def get(url, *, timeout):  # type: ignore[no-untyped-def]
+            assert timeout == 120
+            Session.urls.append(url)
+            if url.endswith("/property/Title/JSON"):
+                return Response({"PropertyTable": {"Properties": [
+                    {"CID": 1, "Title": "Acetyl-DL-carnitine"},
+                    {"CID": 2244, "Title": "Aspirin"},
+                ]}})
+            return Response({"PC_Compounds": [
+                {"id": {"id": {"cid": 1}}},
+                {"id": {"id": {"cid": 2244}}},
+            ]})
+
+    client = RequestsPubchemCompoundClient(  # type: ignore[arg-type]
+        Session(), sleep=lambda seconds: None)
+    result = client.fetch_batch(("1", "2244"), timeout=120)
+    assert result.payload["PropertyTable"]["Properties"][1]["Title"] == "Aspirin"
+    assert Session.urls == [
+        "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/1,2244/JSON",
+        "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/1,2244/property/Title/JSON",
+    ]
+    assert result.title_evidence is not None
+    assert result.title_evidence.request_count == 1
+
+
 def test_requests_client_honors_retry_after_and_records_evidence() -> None:
     class Response:
         text = ""
@@ -198,6 +251,8 @@ def test_requests_client_honors_retry_after_and_records_evidence() -> None:
             {"PC_Compounds": [{"id": {"id": {"cid": 1}}}]},
             {"X-Throttling-Control": "Request Count status: Green (0%)"},
         ),
+        Response(200, {"PropertyTable": {"Properties": [
+            {"CID": 1, "Title": "Acetyl-DL-carnitine"}]}}),
     ]
 
     class Session:
@@ -217,7 +272,7 @@ def test_requests_client_honors_retry_after_and_records_evidence() -> None:
     result = client.fetch_batch(("1",), timeout=120)
 
     assert result.statuses == {"1": ("ok", "200", "")}
-    assert sleeps == [30.0, 0.25]
+    assert sleeps == [30.0, 0.25, 0.25]
     assert result.evidence is not None
     assert result.evidence.request_count == 2
     assert result.evidence.retry_count == 1
@@ -271,6 +326,8 @@ def test_requests_client_honors_http_date_retry_after() -> None:
     responses = [
         Response(503, {}, {"Retry-After": "Thu, 10 Sep 2026 12:00:07 GMT"}),
         Response(200, {"PC_Compounds": [{"id": {"id": {"cid": 1}}}]}),
+        Response(200, {"PropertyTable": {"Properties": [
+            {"CID": 1, "Title": "Acetyl-DL-carnitine"}]}}),
     ]
 
     class Session:
@@ -290,7 +347,7 @@ def test_requests_client_honors_http_date_retry_after() -> None:
 
     client.fetch_batch(("1",), timeout=120)
 
-    assert sleeps == [7.0, 0.25]
+    assert sleeps == [7.0, 0.25, 0.25]
 
 
 def test_requests_client_fails_immediately_on_permanent_batch_error() -> None:
@@ -338,7 +395,8 @@ def test_recipe_projects_compound_records_to_a_validated_tsv(tmp_path) -> None:
                     },
                 ],
             }
-        ]
+        ],
+        "PropertyTable": {"Properties": [{"CID": 123, "Title": "Water"}]},
     }
     with gzip.open(input_dir / "records.json.gz", "wt", encoding="utf-8") as handle:
         json.dump(payload, handle)
@@ -373,13 +431,33 @@ def test_recipe_projects_compound_records_to_a_validated_tsv(tmp_path) -> None:
             "isomeric_smiles": "",
             "inchi": "",
             "iupac_name": "",
+            "title": "Water",
         }
     ]
     assert product.validation == {
         "row_count": 1,
         "with_inchikey_count": 1,
         "with_monoisotopic_mass_count": 0,
+        "with_title_count": 1,
     }
+
+
+def test_new_molecular_recipe_rejects_old_records_without_pinned_titles(tmp_path) -> None:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "pubchem_compound_records_manifest.tsv").write_text(
+        "batch_file\tstatus\nrecords.json.gz\tok\n", encoding="utf-8")
+    with gzip.open(input_dir / "records.json.gz", "wt", encoding="utf-8") as handle:
+        json.dump({"PC_Compounds": [{"id": {"id": {"cid": 1}}}]}, handle)
+    recipe = PubchemCidMolecularInfoRecipe()
+    slot = recipe.descriptor.inputs[0]
+    reference = SnapshotRef.derived("pubchem:compound_records:legacy")
+    registered = RegisteredSnapshotRef(reference, "s3://registry/manifest.yaml", "a" * 64)
+    with pytest.raises(InvalidDerivedBuildError, match="lacks pinned Title evidence"):
+        recipe.build(
+            {slot.name: MaterializedRecipeInput(slot, registered, input_dir)},
+            tmp_path / "output", NullProgressReporter(),
+        )
 
 
 @pytest.mark.parametrize("batch_file", ["../outside.json.gz", "/tmp/outside.json.gz"])

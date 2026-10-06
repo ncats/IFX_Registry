@@ -316,27 +316,15 @@ class AuditSnapshotReferences:
                         caveats=(manual_caveat,),
                     )
                 check_caveat = _upstream_check_caveat(reference, checked)
-                if latest is not None and reference.version.value != latest.version.value:
-                    return ReferenceAudit(
-                        reference,
-                        AuditDisposition.UPDATE_PIN,
-                        pin_registered=pin_registered,
-                        latest_registered_reference=latest,
-                        recommended_reference=latest,
-                        reason=(
-                            "Use the newest registered source snapshot; live upstream "
-                            "freshness could not be verified"
-                        ),
-                        caveats=(check_caveat,),
-                    )
                 return ReferenceAudit(
                     reference,
-                    AuditDisposition.CURRENT,
-                    pin_registered=pin_registered,
+                    AuditDisposition.UNVERIFIABLE,
+                    pin_registered=True,
                     latest_registered_reference=latest,
                     reason=(
-                        "The exact pin is registered; live upstream freshness could not "
-                        "be verified"
+                        "The exact pin is registered, but live upstream freshness could "
+                        "not be verified; registration order does not establish source "
+                        "version order. Keep the pin and retry the upstream check."
                     ),
                     caveats=(check_caveat,),
                 )

@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any, cast
 
+import pytest
+
 from ifx_registry.application.use_cases.audit_snapshot_references import (
     AuditCaveatCode,
     AuditDisposition,
@@ -671,7 +673,7 @@ def test_registered_newer_source_makes_managed_derived_rebuild_actionable() -> N
     assert report.actions == (source_result, derived_result)
 
 
-def test_registered_current_derived_is_recommended_with_check_caveats() -> None:
+def test_derived_is_unverifiable_when_source_probe_fails() -> None:
     source_id = DatasetId("example", "records")
     output_id = DatasetId("derived", "output")
     descriptor = _descriptor(output_id, source_id)
@@ -696,8 +698,8 @@ def test_registered_current_derived_is_recommended_with_check_caveats() -> None:
         SnapshotRef.derived(old.snapshot_id)
     )
 
-    assert result.disposition is AuditDisposition.UPDATE_PIN
-    assert result.recommended_reference == SnapshotRef.derived(current.snapshot_id)
+    assert result.disposition is AuditDisposition.UNVERIFIABLE
+    assert result.recommended_reference is None
     assert result.caveats[0].code is AuditCaveatCode.UPSTREAM_CHECK_UNVERIFIED
     assert not result.is_current
 
@@ -831,3 +833,46 @@ def test_dependency_cycle_is_reported_deterministically() -> None:
         == "Dependency cycle detected: derived:first:1 -> derived:second:1 -> derived:first:1"
         for item in report.entries
     )
+
+
+@pytest.mark.parametrize("pin", ["2026-05-28", "2026-03-25"])
+def test_failed_probe_never_uses_registration_order_to_recommend_a_pin(pin: str) -> None:
+    source_id = DatasetId("go", "goa_human_go")
+    newer_data = _source(source_id, "2026-05-28", 1)
+    older_data_registered_later = _source(source_id, "2026-03-25", 2)
+    reference = SnapshotRef.source(f"go:goa_human_go:{pin}")
+    report = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((_source_dataset(
+            older_data_registered_later, newer_data,
+        ),))),
+        cast(Any, Check({source_id: UnknownSourceError("upstream unreachable")})),
+        cast(Any, Recipes()),
+    ).execute((reference,))
+    result = report.for_reference(reference)
+
+    assert result.disposition is AuditDisposition.UNVERIFIABLE
+    assert result.pin_registered
+    assert result.recommended_reference is None
+    assert not result.is_qualified_current
+    assert not report.is_complete
+    assert report.actions == ()
+    assert result.caveats[0].code is AuditCaveatCode.UPSTREAM_CHECK_UNVERIFIED
+    assert "upstream unreachable" in result.caveats[0].message
+
+
+def test_successful_probe_recommends_upstream_even_if_registered_earlier() -> None:
+    source_id = DatasetId("go", "goa_human_go")
+    newer_data = _source(source_id, "2026-05-28", 1)
+    older_data_registered_later = _source(source_id, "2026-03-25", 2)
+    reference = SnapshotRef.source(older_data_registered_later.snapshot_id)
+    result = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((_source_dataset(
+            older_data_registered_later, newer_data,
+        ),))),
+        cast(Any, Check({source_id: "2026-05-28"})),
+        cast(Any, Recipes()),
+    ).execute((reference,)).for_reference(reference)
+
+    assert result.disposition is AuditDisposition.UPDATE_PIN
+    assert result.recommended_reference == SnapshotRef.source(newer_data.snapshot_id)
+    assert not result.caveats

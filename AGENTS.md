@@ -52,6 +52,22 @@ infrastructure --/
 - Catalog reads come from S3. A local cache may improve performance but must not
   masquerade as authoritative data when S3 is unavailable.
 
+## Fail Loudly on Broken Requirements
+
+- Diagnose the root cause when required inputs, assumptions, or validation fail.
+  Do not invent a fallback, substitute another source or older data, skip a
+  required step, return an empty/default result, or weaken a check just to make
+  the run succeed.
+- Stop the affected operation with an actionable error that identifies what
+  failed and preserves the original cause. Do not report incomplete work or
+  degraded data as a successful build, capture, or release.
+- Retries and optional behavior are appropriate only when the existing contract
+  allows them and they preserve correctness. Make any degraded state visible;
+  a warning is not a substitute for failing a required operation.
+- Fix the underlying issue. If continuing requires changing the intended
+  behavior or data contract, explain the tradeoff and get an explicit decision
+  rather than silently introducing a workaround. Keep the fix minimal.
+
 ## Quality Rules
 
 - Target Python 3.11 or newer.
