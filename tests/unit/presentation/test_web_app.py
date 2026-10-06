@@ -4,6 +4,7 @@ import re
 import sys
 from dataclasses import replace
 from datetime import UTC, datetime
+from html import unescape
 from pathlib import Path, PurePosixPath
 from zoneinfo import ZoneInfo
 
@@ -358,6 +359,101 @@ async def test_catalog_urls_include_configured_root_path(tmp_path: Path) -> None
         in response.text
     )
     assert redirect.headers["location"] == "/registry/"
+
+
+@pytest.mark.anyio
+async def test_source_review_copies_configured_sources_and_published_files(
+    tmp_path: Path,
+) -> None:
+    objects = FakeObjectStore()
+    artifact = tmp_path / "records.tsv"
+    artifact.write_text("id\n1\n")
+    metadata = tmp_path / "metadata.json"
+    metadata.write_text("{}")
+    other_artifact = tmp_path / "items.tsv"
+    other_artifact.write_text("id\n2\n")
+    S3PublishedSnapshotRepository(objects).publish(
+        SourceSnapshot(
+            dataset=DatasetId("example", "records"),
+            version=SourceVersion("2026-09"),
+            files=(
+                SnapshotFile(artifact, PurePosixPath("records.tsv"), "https://example.org/records.tsv"),
+                SnapshotFile(metadata, PurePosixPath("metadata.json"), "https://example.org/metadata.json"),
+            ),
+            downloaded_at=datetime.now(UTC),
+        )
+    )
+    S3PublishedSnapshotRepository(objects).publish(
+        SourceSnapshot(
+            dataset=DatasetId("other", "items"),
+            version=SourceVersion("1"),
+            files=(SnapshotFile(other_artifact, PurePosixPath("items.tsv"), "https://other.org/items.tsv"),),
+            downloaded_at=datetime.now(UTC),
+            homepage="https://other.org",
+            upstream_urls=("https://other.org/items.tsv",),
+        )
+    )
+    app = create_app(
+        WebSettings(tmp_path, root_path="/registry"),
+        _services(tmp_path, objects=objects),
+    )
+    transport = httpx.ASGITransport(app=app)
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            catalog = await client.get("/")
+            response = await client.get("/sources/review")
+
+    assert 'href="/registry/sources/review"' in catalog.text
+    assert response.status_code == 200
+    assert "Source review" in response.text
+    match = re.search(r'<textarea[^>]*>(.*?)</textarea>', response.text, re.S)
+    assert match is not None
+    sheet_data = unescape(match.group(1))
+    headings, metadata_row, records_row, blank, other_row = [
+        line.split("\t") for line in sheet_data.splitlines()
+    ]
+    assert headings == [
+        "Data source", "Main URL", "Dataset", "Dataset ID", "Description",
+        "Expected files", "Latest registered version", "Registered file", "File source URL",
+        "Acquisition URLs", "Freshness check URLs", "Freshness check method",
+        "Configuration status",
+    ]
+    assert metadata_row == [
+        "Example Records", "https://example.org/records", "Records", "example:records",
+        "Example source", "1", "2026-09", "metadata.json", "https://example.org/metadata.json",
+        "https://example.org/records.tsv", "https://example.org/version",
+        "Reads the release identifier from the example metadata endpoint.", "Configured",
+    ]
+    assert records_row[7:9] == ["records.tsv", "https://example.org/records.tsv"]
+    assert records_row[3] == "example:records"
+    assert blank == [""]
+    assert other_row[0:4] == ["Other", "https://other.org", "Items", "other:items"]
+    assert other_row[7:9] == ["items.tsv", "https://other.org/items.tsv"]
+    assert other_row[-1] == "Catalog only"
+
+
+@pytest.mark.anyio
+async def test_source_review_shows_unregistered_sources_without_claiming_files(
+    tmp_path: Path,
+) -> None:
+    app = create_app(WebSettings(tmp_path), _services(tmp_path))
+    transport = httpx.ASGITransport(app=app)
+
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/sources/review")
+
+    assert response.status_code == 200
+    match = re.search(r'<textarea[^>]*>(.*?)</textarea>', response.text, re.S)
+    assert match is not None
+    headings, values = [line.split("\t") for line in unescape(match.group(1)).splitlines()]
+    row = dict(zip(headings, values, strict=True))
+    assert row["Expected files"] == "1"
+    assert row["Latest registered version"] == ""
+    assert row["Registered file"] == ""
+    assert row["File source URL"] == ""
+    assert row["Freshness check URLs"] == "https://example.org/version"
 
 
 @pytest.mark.anyio

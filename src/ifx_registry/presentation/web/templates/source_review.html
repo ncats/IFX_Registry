@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Source review · IFX Data Registry{% endblock %}
+{% block content %}
+<section class="sheet-page" aria-labelledby="sheet-title">
+    <div class="section-heading">
+        <div>
+            <h1 id="sheet-title">Source review</h1>
+            <p>Review each data source, its datasets and files, acquisition URLs, and freshness checks. Each registered file has its own row, with a blank row between data sources. Copy the tab-separated table into cell A1 in Google Sheets.</p>
+        </div>
+    </div>
+    {% if catalog_error %}
+        <div class="catalog-unavailable" role="alert">
+            <div class="catalog-status-icon" aria-hidden="true">!</div>
+            <div><h2>Registry catalog unavailable</h2><p>{{ catalog_error }}</p></div>
+        </div>
+    {% else %}
+        <div class="sheet-toolbar">
+            <span>{{ source_count }} configured source dataset{% if source_count != 1 %}s{% endif %}</span>
+            <button class="button primary" id="copy-sheet-data" type="button">Copy table</button>
+            <span id="copy-sheet-status" role="status" aria-live="polite"></span>
+        </div>
+        <label for="sheet-data" class="sheet-label">Tab-separated data</label>
+        <textarea id="sheet-data" readonly spellcheck="false" aria-describedby="sheet-help">{{ sheet_data }}</textarea>
+        <p id="sheet-help" class="sheet-help">File names and file source URLs come from the latest published version. An unregistered dataset has one row with blank file fields. Catalog-only sources have no configured freshness check in this deployment.</p>
+    {% endif %}
+</section>
+{% endblock %}

@@ -62,6 +62,7 @@ from ifx_registry.application.use_cases.source_check_status import (
     SourceCheckStatus,
     VersionCheckPolicy,
 )
+from ifx_registry.domain.catalog import PublishedSnapshot
 from ifx_registry.domain.derived_builds import DerivedRecipeDescriptor
 from ifx_registry.domain.errors import (
     AcquisitionJobNotFoundError,
@@ -609,6 +610,30 @@ def create_app(
                 "has_failed_activity": has_failed_activity,
                 "source_check_statuses": source_check_statuses,
             },
+        )
+
+    @application.get("/sources/review", response_class=HTMLResponse)
+    def source_review(request: Request) -> HTMLResponse:
+        try:
+            datasets = resolved_services.browse_registry_catalog.execute()
+            overviews = resolved_services.list_sources.execute()
+            catalog_error = None
+        except RegistryError as error:
+            datasets = ()
+            overviews = ()
+            catalog_error = str(error)
+        return templates.TemplateResponse(
+            request=request,
+            name="source_review.html",
+            context={
+                "active_page": "sheets",
+                "catalog_error": catalog_error,
+                "source_count": len(overviews),
+                "sheet_data": (
+                    _source_review_tsv(overviews, datasets) if catalog_error is None else ""
+                ),
+            },
+            status_code=503 if catalog_error is not None else 200,
         )
 
     @application.get("/datasets/{source_name}/{dataset_name}")
@@ -1237,6 +1262,76 @@ def _safe_http_url(value: object) -> str | None:
 
 def _format_json(value: object) -> str:
     return json.dumps(value, indent=2, sort_keys=True, default=str)
+
+
+def _source_review_tsv(
+    overviews: tuple[SourceOverview, ...], datasets: tuple[CatalogDataset, ...]
+) -> str:
+    """Render one row per latest published file, grouped by source."""
+    headings = [
+        "Data source", "Main URL", "Dataset", "Dataset ID", "Description",
+        "Expected files", "Latest registered version", "Registered file", "File source URL",
+        "Acquisition URLs", "Freshness check URLs", "Freshness check method",
+        "Configuration status",
+    ]
+    records: list[tuple[str, list[str]]] = []
+    published = {
+        item.dataset: item.latest
+        for item in datasets
+        if item.kind is CatalogKind.SOURCE and isinstance(item.latest, PublishedSnapshot)
+    }
+    configured = {overview.descriptor.dataset for overview in overviews}
+    for overview in overviews:
+        descriptor = overview.descriptor
+        snapshot = published.get(descriptor.dataset)
+        for file in snapshot.files if snapshot else (None,):
+            records.append((descriptor.dataset.source, [
+                descriptor.display_name,
+                descriptor.homepage or "",
+                _format_dataset_name(descriptor.dataset.dataset),
+                str(descriptor.dataset),
+                descriptor.description,
+                str(descriptor.expected_file_count),
+                str(snapshot.version) if snapshot else "",
+                str(file.relative_path) if file else "",
+                (file.source_url or "") if file else "",
+                "; ".join(descriptor.upstream_urls),
+                "; ".join(descriptor.version_evidence_urls),
+                descriptor.version_check_description or "",
+                "Deprecated" if descriptor.deprecated else "Configured",
+            ]))
+    for item in datasets:
+        if (
+            item.kind is not CatalogKind.SOURCE
+            or item.dataset in configured
+            or not isinstance(item.latest, PublishedSnapshot)
+        ):
+            continue
+        snapshot = item.latest
+        for file in snapshot.files:
+            records.append((item.dataset.source, [
+                _format_source_name(item.dataset.source), snapshot.homepage or "",
+                _format_dataset_name(item.dataset.dataset), str(item.dataset), "",
+                str(len(snapshot.files)), str(snapshot.version),
+                str(file.relative_path), file.source_url or "",
+                "; ".join(snapshot.upstream_urls), "", "", "Catalog only",
+            ]))
+
+    def safe_cell(value: str) -> str:
+        single_line = value.replace("\t", " ").replace("\r", " ").replace("\n", " ")
+        if single_line.lstrip().startswith(("=", "+", "-", "@")):
+            return "'" + single_line
+        return single_line
+
+    records.sort(key=lambda record: (record[0].casefold(), record[1][3], record[1][7]))
+    lines = ["\t".join(headings)]
+    previous_source = None
+    for source, row in records:
+        if previous_source is not None and source != previous_source:
+            lines.append("")
+        lines.append("\t".join(safe_cell(value) for value in row))
+        previous_source = source
+    return "\n".join(lines)
 
 
 def main() -> None:

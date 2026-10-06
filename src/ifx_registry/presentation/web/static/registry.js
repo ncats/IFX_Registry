@@ -308,6 +308,31 @@ function initializePage(root = document) {
     initializeCatalogSearch(root);
     initializeLineageMaps(root);
     initializeDerivedBuildPreviews(root);
+    initializeSheetCopy(root);
+}
+
+function initializeSheetCopy(root = document) {
+    const button = root.querySelector("#copy-sheet-data");
+    const data = root.querySelector("#sheet-data");
+    const status = root.querySelector("#copy-sheet-status");
+    if (!button || !data || !status || button.dataset.ready) return;
+    button.dataset.ready = "true";
+    button.addEventListener("click", async () => {
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(data.value);
+            } else {
+                data.focus();
+                data.select();
+                if (!document.execCommand("copy")) throw new Error("Copy failed");
+            }
+            status.textContent = "Copied. Paste into cell A1 in Google Sheets.";
+        } catch (_error) {
+            data.focus();
+            data.select();
+            status.textContent = "Select all and copy the highlighted data.";
+        }
+    });
 }
 
 document.addEventListener("DOMContentLoaded", () => initializePage());

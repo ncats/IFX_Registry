@@ -460,3 +460,12 @@ body:has(.catalog-layout.has-activity) .page-shell { width: min(1380px, calc(100
 .deprecation-badge { display: inline-block; padding: .15rem .5rem; border: 1px solid #9a6700; border-radius: .3rem; color: #694500; background: #fff4cc; font-weight: 700; }
 .source-deprecation a { text-decoration: underline; }
 .source-row:target, tr[data-catalog-row]:target { outline: 2px solid #427a99; outline-offset: -2px; }
+
+.sheet-page { max-width: 1100px; }
+.sheet-page h1 { margin: 0; }
+.sheet-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 20px 0 16px; }
+.sheet-toolbar > span:first-child { margin-right: auto; color: var(--ink-soft); font-weight: 700; }
+.sheet-label { display: block; margin-bottom: 8px; font-weight: 750; }
+#sheet-data { display: block; width: 100%; min-height: 420px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--ink); font: 12px/1.5 monospace; white-space: pre; overflow: auto; resize: vertical; }
+#sheet-data:focus { outline: 3px solid rgba(7, 93, 87, .2); }
+.sheet-help { color: var(--ink-soft); font-size: 13px; }
