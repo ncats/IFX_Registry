@@ -17,6 +17,18 @@ class DatasetDeprecationNotice:
     replacement_kind: CatalogKind
 
 
+def _target_graph_notice(file_name: str) -> DatasetDeprecationNotice:
+    return DatasetDeprecationNotice(
+        message=(
+            "Deprecated for new integrations. Use the corresponding "
+            f"{file_name} file from an exact ifx_harmonizers:targets release. "
+            "Existing source version pins remain available."
+        ),
+        replacement=DatasetId("ifx_harmonizers", "targets"),
+        replacement_kind=CatalogKind.DERIVED,
+    )
+
+
 DATASET_DEPRECATIONS = {
     (CatalogKind.EXTERNAL, DatasetId("drugcentral", "drug_database")):
         DatasetDeprecationNotice(
@@ -28,4 +40,12 @@ DATASET_DEPRECATIONS = {
             replacement=DatasetId("drugcentral", "drug_exports"),
             replacement_kind=CatalogKind.SOURCE,
         ),
+    (CatalogKind.SOURCE, DatasetId("target_graph", "gene_ids")):
+        _target_graph_notice("gene_ids.tsv"),
+    (CatalogKind.SOURCE, DatasetId("target_graph", "protein_ids")):
+        _target_graph_notice("protein_ids.tsv"),
+    (CatalogKind.SOURCE, DatasetId("target_graph", "transcript_ids")):
+        _target_graph_notice("transcript_ids.tsv"),
+    (CatalogKind.SOURCE, DatasetId("target_graph", "uniprot_mapping")):
+        _target_graph_notice("uniprot_mapping.csv"),
 }

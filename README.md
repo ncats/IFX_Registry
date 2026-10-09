@@ -301,6 +301,12 @@ also explicit, so a derived dependency uses
 An external system version may be an equally explicit input with
 `SnapshotRef.external("chembl:activity_database:chembl36")`.
 
+The older `target_graph:gene_ids`, `target_graph:protein_ids`,
+`target_graph:transcript_ids`, and `target_graph:uniprot_mapping` source datasets
+are deprecated for new integrations. Use the matching files from an exact
+`ifx_harmonizers:targets` derived release. Existing source versions and exact
+pins remain available.
+
 Consumers use the matching namespace:
 
 ```python
