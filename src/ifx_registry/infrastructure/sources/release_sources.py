@@ -236,8 +236,13 @@ STRING_INDEX = "https://stringdb-downloads.org/download/"
 
 
 def _string_files(version: SourceVersion) -> tuple[HttpFileSpec, ...]:
-    name = f"9606.protein.links.v{version.value}.txt.gz"
-    return (HttpFileSpec(f"{STRING_INDEX}protein.links.v{version.value}/{name}", name),)
+    upstream_name = f"9606.protein.links.v{version.value}.txt.gz"
+    return (
+        HttpFileSpec(
+            f"{STRING_INDEX}protein.links.v{version.value}/{upstream_name}",
+            "9606.protein.links.txt.gz",
+        ),
+    )
 
 
 PANTHER_INDEX = (

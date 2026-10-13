@@ -359,3 +359,16 @@ def test_human_isoforms_is_deprecated_with_ftp_replacement() -> None:
     assert legacy.deprecated
     assert legacy.replacement == DatasetId("uniprot", "human_reference_proteome_gene_centric")
     assert not descriptors[legacy.replacement].deprecated
+
+
+def test_string_release_keeps_a_stable_snapshot_filename() -> None:
+    from ifx_registry.domain.models import SourceVersion
+    from ifx_registry.infrastructure.sources.release_sources import _string_files
+
+    for version in ("12.5", "13.0"):
+        (spec,) = _string_files(SourceVersion(version))
+        assert spec.url == (
+            f"https://stringdb-downloads.org/download/protein.links.v{version}/"
+            f"9606.protein.links.v{version}.txt.gz"
+        )
+        assert spec.name == "9606.protein.links.txt.gz"
