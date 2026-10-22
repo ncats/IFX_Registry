@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -532,7 +532,13 @@ def create_app(
         try:
             datasets = resolved_services.browse_registry_catalog.execute()
             registered_by_dataset = {
-                item.dataset: item for item in resolved_services.browse_catalog.execute()
+                item.dataset: PublishedDataset(
+                    item.dataset,
+                    cast(tuple[PublishedSnapshot, ...], item.versions),
+                    item.update_capability,
+                )
+                for item in datasets
+                if item.kind is CatalogKind.SOURCE
             }
         except RegistryError as error:
             catalog_error = str(error)

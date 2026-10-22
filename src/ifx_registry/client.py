@@ -429,6 +429,7 @@ class RegistryClient:
         version_evidence: Mapping[str, Any] | None = None,
         validation: Mapping[str, Any] | None = None,
         metadata: Mapping[str, Any] | None = None,
+        license: str | None = None,
     ) -> DatasetDescription:
         """Publish faithful caller-captured source files without an installed adapter."""
         if self._publish_source is None:
@@ -478,6 +479,7 @@ class RegistryClient:
             homepage=homepage,
             upstream_urls=tuple(upstream_urls),
             metadata=metadata_data,
+            license=license,
         )
         return self._publish_source.execute(snapshot)
 

@@ -359,6 +359,7 @@ def _manifest_dict(snapshot: PublishedDatasetSnapshot) -> dict[str, Any]:
         "download_date": iso_date(snapshot.downloaded_at),
         "downloaded_at": snapshot.downloaded_at.isoformat(),
         "created_at": snapshot.published_at.isoformat(),
+        "license": snapshot.license,
         "upstream": {
             "homepage": snapshot.homepage,
             "urls": list(snapshot.upstream_urls),

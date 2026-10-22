@@ -98,6 +98,7 @@ class PublishedSnapshot:
     upstream_urls: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
     manifest_sha256: str | None = None
+    license: str | None = None
 
     def __post_init__(self) -> None:
         if not self.files:
@@ -106,6 +107,8 @@ class PublishedSnapshot:
             raise ValueError("snapshot timestamps must be timezone-aware")
         if not self.manifest_uri.startswith("s3://"):
             raise ValueError("published snapshot manifest_uri must be an S3 URI")
+        if self.license is not None and not self.license.strip():
+            raise ValueError("published snapshot license must not be blank")
 
     @property
     def snapshot_id(self) -> str:

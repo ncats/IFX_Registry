@@ -332,6 +332,62 @@ async def test_catalog_separates_configured_sources_from_registered_datasets(
     assert 'href="/operations"' not in response.text
     assert 'id="registration-panel"' in response.text
     assert 'id="catalog-job-list"' in response.text
+    assert 'data-source-group="example"' in response.text
+
+
+@pytest.mark.anyio
+async def test_catalog_groups_registered_datasets_by_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    objects = FakeObjectStore()
+    repository = S3PublishedSnapshotRepository(objects)
+    payload = tmp_path / "data.tsv"
+    payload.write_text("id\n1\n", encoding="utf-8")
+    for provider, name in (
+        ("ncbi", "medgen"),
+        ("babel", "protein_compendium"),
+        ("ncbi", "gene2go"),
+        ("babel", "disease_compendium"),
+        ("babel", "human_gene_compendium"),
+    ):
+        repository.publish(
+            SourceSnapshot(
+                dataset=DatasetId(provider, name),
+                version=SourceVersion("1"),
+                files=(SnapshotFile(payload, PurePosixPath("data.tsv"), None),),
+            )
+        )
+    listed_prefixes: list[str] = []
+    original_list_keys = objects.list_keys
+
+    def track_list_keys(prefix: str) -> tuple[str, ...]:
+        listed_prefixes.append(prefix)
+        return original_list_keys(prefix)
+
+    monkeypatch.setattr(objects, "list_keys", track_list_keys)
+    app = create_app(WebSettings(tmp_path), _services(tmp_path, objects=objects))
+    transport = httpx.ASGITransport(app=app)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/")
+
+    assert response.status_code == 200
+    assert response.text.count('data-catalog-group="babel"') == 1
+    assert response.text.count('data-catalog-group="ncbi"') == 1
+    babel = response.text.split('data-catalog-group="babel"', 1)[1].split("</section>", 1)[0]
+    ncbi = response.text.split('data-catalog-group="ncbi"', 1)[1].split("</section>", 1)[0]
+    assert babel.count('data-catalog-row') == 3
+    assert ncbi.count('data-catalog-row') == 2
+    assert '<h3 id="catalog-provider-babel">Babel</h3>' in babel
+    assert '<h3 id="catalog-provider-ncbi">NCBI</h3>' in ncbi
+    assert babel.count('<table class="source-table catalog-table catalog-list-table">') == 1
+    assert ncbi.count('<table class="source-table catalog-table catalog-list-table">') == 1
+    assert '<strong>Babel</strong>' not in babel
+    assert '<strong>NCBI</strong>' not in ncbi
+    assert '<span class="source-id">babel:' not in babel
+    assert '<span class="source-id">ncbi:' not in ncbi
+    assert 'aria-label="View babel:disease_compendium"' in babel
+    assert listed_prefixes.count("sources/") == 1
 
 
 @pytest.mark.anyio
@@ -1085,6 +1141,7 @@ async def test_catalog_and_details_distinguish_source_derived_and_external(
                     "https://example.org/source.tsv",
                 ),
             ),
+            license="OMIM",
         )
     )
     app = create_app(WebSettings(tmp_path), _services(tmp_path, objects=objects))
@@ -1094,6 +1151,8 @@ async def test_catalog_and_details_distinguish_source_derived_and_external(
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             catalog = await client.get("/")
             source_detail = await client.get("/datasets/source/example/records/1")
+            source_overview = await client.get("/datasets/source/example/records")
+            licensed_detail = await client.get("/datasets/source/example/records/2")
             derived_overview = await client.get("/datasets/derived/example/records")
             derived_detail = await client.get("/datasets/derived/example/records/1")
             external_detail = await client.get(
@@ -1103,12 +1162,17 @@ async def test_catalog_and_details_distinguish_source_derived_and_external(
     assert catalog.status_code == 200
     assert 'data-kind-filter="derived"' in catalog.text
     assert 'href="/datasets/source/example/records"' in catalog.text
+    assert 'aria-label="License required: OMIM"' in catalog.text
     assert 'href="/datasets/derived/example/records"' in catalog.text
     assert "Metadata only" in catalog.text
     assert 'aria-label="Rebuild recommended"' in catalog.text
     assert "dependency-preview" not in catalog.text
     assert "1 latest registered · 1 older" not in catalog.text
     assert source_detail.status_code == 200
+    assert 'aria-label="License required: OMIM"' not in source_detail.text
+    assert 'aria-label="License required: OMIM"' in source_overview.text
+    assert 'aria-label="License required: OMIM"' in licensed_detail.text
+    assert "<strong>OMIM</strong>" in licensed_detail.text
     assert "Source provenance" in source_detail.text
     assert "Dependency tree" in source_detail.text
     assert "Root datasets" in source_detail.text

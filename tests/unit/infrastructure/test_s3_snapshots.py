@@ -75,6 +75,20 @@ def test_publishing_identical_snapshot_is_idempotent(tmp_path: Path) -> None:
     assert len(objects.actions) == 2
 
 
+def test_license_is_published_and_cannot_be_changed_on_same_version(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    objects = FakeObjectStore()
+    repository = S3PublishedSnapshotRepository(objects)
+    licensed = replace(_snapshot(tmp_path / "first"), license="OMIM")
+
+    published = repository.publish(licensed)
+
+    assert published.license == "OMIM"
+    with pytest.raises(SnapshotAlreadyExistsError, match="different"):
+        repository.publish(replace(_snapshot(tmp_path / "second"), license="UMLS"))
+
+
 def test_publishing_different_content_cannot_replace_manifest(tmp_path: Path) -> None:
     repository = S3PublishedSnapshotRepository(FakeObjectStore())
     repository.publish(_snapshot(tmp_path / "one"))

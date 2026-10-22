@@ -170,6 +170,16 @@ sources:
       Release-coherent NCBI Gene, RefSeq, Ensembl, and UniProtKB identifier
       mapping files preserved exactly as published by NCBI.
 
+  - adapter: ncbi_medgen
+    enabled: true
+    display_name: NCBI MedGen
+    description: MedGen identifier, semantic type, and HPO mapping files.
+
+  - adapter: ncbi_mim2gene_medgen
+    enabled: true
+    display_name: NCBI MedGen Gene Associations
+    description: NCBI OMIM-to-gene and MedGen associations.
+
   - adapter: babel_human_gene_compendium
     enabled: true
     display_name: Babel Human Gene Compendium
@@ -183,6 +193,11 @@ sources:
     description: >-
       Human protein identifier cliques selected from one immutable Babel release,
       with complete upstream chunk fingerprints retained for audit.
+
+  - adapter: babel_disease_compendium
+    enabled: true
+    display_name: Babel Disease Compendium
+    description: Complete Disease.txt identifier sets from a versioned Babel release.
 
   - adapter: jensenlab_tissues
     enabled: true
@@ -333,6 +348,36 @@ sources:
     enabled: true
     display_name: Disease Ontology
     description: Human disease terms, definitions, synonyms, and relationships.
+
+  - adapter: efo_ontology
+    enabled: true
+    display_name: Experimental Factor Ontology
+    description: Experimental factors, including disease and cell type terms.
+
+  - adapter: clingen_gene_validity
+    enabled: true
+    display_name: ClinGen Gene-Disease Validity
+    description: ClinGen expert-panel gene-disease validity curation summary.
+
+  - adapter: cdc_icd10cm
+    enabled: true
+    display_name: ICD-10-CM
+    description: CDC annual ICD-10-CM tabular and index ZIP, versioned by fiscal year.
+
+  - adapter: monarch_gene_disease_associations
+    enabled: true
+    display_name: Monarch Gene-Disease Associations
+    description: Human gene-disease associations from a dated Monarch KG release.
+
+  - adapter: orphanet_ordo
+    enabled: true
+    display_name: Orphanet Rare Disease Ontology
+    description: English ORDO ontology from an Orphadata release.
+
+  - adapter: orphanet_gene_associations
+    enabled: true
+    display_name: Orphanet Gene Associations
+    description: Orphadata gene associations with an embedded export date.
 
   - adapter: refmet_metabolites_csv
     enabled: true

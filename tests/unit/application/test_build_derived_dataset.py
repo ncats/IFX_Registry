@@ -137,7 +137,13 @@ def test_build_materializes_exact_input_and_registers_output(tmp_path: Path) -> 
     manifest.write_text("batch_file\tstatus\nrecords.json.gz\tok\n", encoding="utf-8")
     batch = input_dir / "records.json.gz"
     with gzip.open(batch, "wt", encoding="utf-8") as handle:
-        json.dump({"PC_Compounds": [{"id": {"id": {"cid": 7}}, "props": []}]}, handle)
+        json.dump(
+            {
+                "PC_Compounds": [{"id": {"id": {"cid": 7}}, "props": []}],
+                "PropertyTable": {"Properties": [{"CID": 7, "Title": "Fixture compound"}]},
+            },
+            handle,
+        )
     source_ref = SnapshotRef.source("pubchem:raw_compounds:2026-09")
     derived.publish(
         DerivedSnapshot(

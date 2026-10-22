@@ -19,6 +19,7 @@ from ifx_registry.infrastructure.sources.babel import (
     build_babel_gene_source,
     build_babel_protein_source,
 )
+from ifx_registry.infrastructure.sources.babel_disease import BabelDiseaseCompendiumSource
 from ifx_registry.infrastructure.sources.chebi import CHEBI_FILES, ChebiFullOntologySource
 from ifx_registry.infrastructure.sources.ensembl import (
     ENSEMBL_EXPORTS,
@@ -26,6 +27,7 @@ from ifx_registry.infrastructure.sources.ensembl import (
 )
 from ifx_registry.infrastructure.sources.ensembl_ftp import EnsemblHumanFtpSource
 from ifx_registry.infrastructure.sources.go import GoOntologySource
+from ifx_registry.infrastructure.sources.icd10cm import CdcIcd10CmSource
 from ifx_registry.infrastructure.sources.hgnc import HgncCompleteSetSource
 from ifx_registry.infrastructure.sources.inspected_files import (
     INSPECTED_FILE_SOURCES,
@@ -38,12 +40,16 @@ from ifx_registry.infrastructure.sources.last_modified import (
     LastModifiedSourceDefinition,
 )
 from ifx_registry.infrastructure.sources.mane import ManeHumanSummarySource
+from ifx_registry.infrastructure.sources.monarch import MonarchGeneDiseaseSource
 from ifx_registry.infrastructure.sources.ncbi import NcbiHumanGeneInfoSource
 from ifx_registry.infrastructure.sources.ncbi_gene2go import NcbiGene2GoSource
+from ifx_registry.infrastructure.sources.ncbi_medgen import MEDGEN_FILES, NcbiMedGenSource
+from ifx_registry.infrastructure.sources.ncbi_mim2gene_medgen import NcbiMim2geneMedgenSource
 from ifx_registry.infrastructure.sources.ncbi_gene_mappings import (
     NCBI_GENE_MAPPING_FILES,
     NcbiGeneIdentifierMappingsSource,
 )
+from ifx_registry.infrastructure.sources.orphanet import OrphanetOrdoSource
 from ifx_registry.infrastructure.sources.panther_pathways import PantherPathwaysSource
 from ifx_registry.infrastructure.sources.reactome import (
     REACTOME_FILES,
@@ -146,6 +152,15 @@ class BuiltInSourceFactory:
                     expected_file_count=len(ENSEMBL_EXPORTS),
                 ),
                 "go_ontology": SourceFactoryDefinition(GoOntologySource, expected_file_count=2),
+                "monarch_gene_disease_associations": SourceFactoryDefinition(
+                    MonarchGeneDiseaseSource, expected_file_count=1
+                ),
+                "cdc_icd10cm": SourceFactoryDefinition(
+                    CdcIcd10CmSource, expected_file_count=1
+                ),
+                "orphanet_ordo": SourceFactoryDefinition(
+                    OrphanetOrdoSource, expected_file_count=1
+                ),
                 "hgnc_complete_set": SourceFactoryDefinition(
                     HgncCompleteSetSource,
                     expected_file_count=1,
@@ -162,12 +177,22 @@ class BuiltInSourceFactory:
                     NcbiGeneIdentifierMappingsSource,
                     expected_file_count=len(NCBI_GENE_MAPPING_FILES),
                 ),
+                "ncbi_medgen": SourceFactoryDefinition(
+                    NcbiMedGenSource, expected_file_count=len(MEDGEN_FILES),
+                ),
+                "ncbi_mim2gene_medgen": SourceFactoryDefinition(
+                    NcbiMim2geneMedgenSource, expected_file_count=1,
+                ),
                 "babel_human_gene_compendium": SourceFactoryDefinition(
                     build_babel_gene_source,
                     expected_file_count=1,
                 ),
                 "babel_human_protein_compendium": SourceFactoryDefinition(
                     build_babel_protein_source,
+                    expected_file_count=1,
+                ),
+                "babel_disease_compendium": SourceFactoryDefinition(
+                    BabelDiseaseCompendiumSource,
                     expected_file_count=1,
                 ),
                 "chebi_full_ontology": SourceFactoryDefinition(

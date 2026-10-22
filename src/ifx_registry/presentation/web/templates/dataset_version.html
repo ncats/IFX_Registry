@@ -6,6 +6,7 @@
     <span class="kind-badge kind-{{ kind.value }}">{{ kind.value|title }}</span>
     <h1>{{ snapshot.dataset.source|sourcename }}</h1>
     <p><span class="dataset-name">{{ snapshot.dataset.dataset|datasetname }}</span><code>{{ snapshot.dataset }}:{{ snapshot.version }}</code></p>
+    {% if kind.value == "source" %}{% with license=snapshot.license %}{% include "partials/license_badge.html" %}{% endwith %}{% endif %}
     {% include "partials/source_deprecation.html" %}
     {% with deprecation_kind=kind, deprecation_dataset=snapshot.dataset %}{% include "partials/dataset_deprecation.html" %}{% endwith %}
     {% include "partials/recipe_deprecation.html" %}
@@ -42,6 +43,7 @@
     <div class="fact-grid">
         <div><span>Captured</span><strong>{{ snapshot.downloaded_at|displaytime }}</strong></div>
         <div><span>Capture method</span><strong>{{ snapshot.metadata.get("capture_method", "download")|replace('_', ' ')|title }}</strong></div>
+        {% if snapshot.license %}<div><span>License required</span><strong>{{ snapshot.license }}</strong></div>{% endif %}
     </div>
     {% if snapshot.homepage %}{% set homepage_url = snapshot.homepage|safeurl %}<div class="provenance-homepage"><strong>Source website</strong>{% if homepage_url %}<a href="{{ homepage_url }}" rel="noreferrer">{{ snapshot.homepage }}</a>{% else %}<code>{{ snapshot.homepage }}</code>{% endif %}</div>{% endif %}
     <div class="evidence-grid">

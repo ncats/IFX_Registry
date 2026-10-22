@@ -46,19 +46,26 @@
             </label>
             <span id="source-search-count" class="source-count" aria-live="polite">{{ available_sources|length }} sources</span>
         </div>
-        <div class="source-table-wrap">
-            <table class="source-table" id="available-source-table">
+        <div class="provider-tables" id="available-source-table">
+            {% for provider, provider_sources in available_sources|groupby('descriptor.dataset.source') %}
+            <section class="provider-section" data-source-group="{{ provider }}" aria-labelledby="available-provider-{{ provider }}">
+                <h3 id="available-provider-{{ provider }}">{{ provider|sourcename }}</h3>
+                <div class="source-table-wrap">
+            <table class="source-table">
                 <thead><tr><th>Source</th><th>Upstream release</th><th>Files</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
                 <tbody>
-                {% for overview in available_sources %}
+                {% for overview in provider_sources %}
                     {% set cached_check = source_check_statuses.get(overview.descriptor.dataset) %}
                     {% with checked_version=(cached_check.assessment.checked_version if cached_check and cached_check.assessment else none), check_error=(cached_check.latest_attempt.error if cached_check and cached_check.state.value == "check_failed" else none) %}
                         {% include "partials/source_row.html" %}
                     {% endwith %}
                 {% endfor %}
-                <tr id="source-search-empty" class="source-search-empty" hidden><td colspan="4">No available sources match that search.</td></tr>
                 </tbody>
             </table>
+                </div>
+            </section>
+            {% endfor %}
+            <div id="source-search-empty" class="provider-empty" hidden>No available sources match that search.</div>
         </div>
     </section>
 {% endif %}
@@ -116,17 +123,20 @@
             <button type="button" class="kind-filter" data-kind-filter="derived" aria-pressed="false">Derived</button>
             <button type="button" class="kind-filter" data-kind-filter="external" aria-pressed="false">External</button>
         </div>
-        <div class="source-table-wrap catalog-table-wrap">
-            <table class="source-table catalog-table catalog-list-table" id="catalog-table">
-                <thead><tr><th>Data source</th><th>Type</th><th>Latest version</th><th>Versions</th><th>Contents</th><th>Status</th><th></th></tr></thead>
+        <div class="provider-tables" id="catalog-table">
+            {% for provider, provider_datasets in datasets|groupby('dataset.source') %}
+            <section class="provider-section" data-catalog-group="{{ provider }}" aria-labelledby="catalog-provider-{{ provider }}">
+                <h3 id="catalog-provider-{{ provider }}">{{ provider|sourcename }}</h3>
+                <div class="source-table-wrap catalog-table-wrap">
+            <table class="source-table catalog-table catalog-list-table">
+                <thead><tr><th>Dataset</th><th>Type</th><th>Latest version</th><th>Versions</th><th>Contents</th><th>Status</th><th></th></tr></thead>
                 <tbody>
-                {% for item in datasets %}
+                {% for item in provider_datasets %}
                     {% set overview = source_overviews.get(item.dataset) %}
                     <tr {% if item.kind.value == "source" %}id="source-{{ item.dataset.source }}-{{ item.dataset.dataset }}"{% endif %} data-catalog-row data-kind="{{ item.kind.value }}" data-search="{{ item.dataset.source|sourcename }} {{ item.dataset.dataset|datasetname }} {{ item.dataset }} {{ item.kind.value }} {{ item.update_capability.value|replace('_', ' ') }} {% for snapshot in item.versions %}{{ snapshot.version }} {% endfor %}">
                         <td class="source-identity">
-                            <strong>{{ item.dataset.source|sourcename }}</strong>
-                            <span class="dataset-name">{{ item.dataset.dataset|datasetname }}</span>
-                            <span class="source-id">{{ item.dataset }}</span>
+                            <strong>{{ item.dataset.dataset|datasetname }}</strong>
+                            {% if item.kind.value == "source" %}{% with license=item.latest.license %}{% include "partials/license_badge.html" %}{% endwith %}{% endif %}
                             {% if item.kind.value == "source" %}{% include "partials/source_deprecation.html" %}{% endif %}
                             {% with deprecation_kind=item.kind, deprecation_dataset=item.dataset %}{% include "partials/dataset_deprecation.html" %}{% endwith %}
                             {% if item.kind.value == "derived" %}
@@ -172,12 +182,15 @@
                                 <span class="catalog-capability-text">{{ source_status }}</span>
                             {% endif %}
                         </td>
-                        <td class="catalog-action"><a class="button secondary" href="{{ root_path }}/datasets/{{ item.kind.value }}/{{ item.dataset.source }}/{{ item.dataset.dataset }}">View</a></td>
+                        <td class="catalog-action"><a class="button secondary" href="{{ root_path }}/datasets/{{ item.kind.value }}/{{ item.dataset.source }}/{{ item.dataset.dataset }}" aria-label="View {{ item.dataset }}">View</a></td>
                     </tr>
                 {% endfor %}
-                <tr id="catalog-search-empty" class="source-search-empty" hidden><td colspan="7">No datasets match the current search and type filter. <button type="button" class="clear-filter" id="catalog-clear-filter">Clear search</button></td></tr>
                 </tbody>
             </table>
+                </div>
+            </section>
+            {% endfor %}
+            <div id="catalog-search-empty" class="provider-empty" hidden>No datasets match the current search and type filter. <button type="button" class="clear-filter" id="catalog-clear-filter">Clear search</button></div>
         </div>
     </section>
 {% else %}

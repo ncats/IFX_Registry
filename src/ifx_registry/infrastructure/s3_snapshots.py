@@ -167,6 +167,7 @@ class S3PublishedSnapshotRepository(
                 upstream_urls=tuple(str(value) for value in upstream_urls),
                 metadata=extra,
                 manifest_sha256=hashlib.sha256(content).hexdigest(),
+                license=_optional_string(payload.get("license")),
             )
         except (KeyError, TypeError, ValueError, yaml.YAMLError) as error:
             raise CatalogConsistencyError(f"Invalid Registry manifest {key}: {error}") from error
@@ -195,6 +196,7 @@ class S3PublishedSnapshotRepository(
             "downloaded_at": snapshot.downloaded_at,
             "downloaded_by": "ifx-registry",
             "created_at": published_at,
+            "license": snapshot.license,
             "upstream": {"homepage": snapshot.homepage, "urls": list(snapshot.upstream_urls)},
             "files": [
                 {
@@ -250,6 +252,7 @@ def _same_publication(
         and _same_json(published.version.evidence, snapshot.version.evidence)
         and published.homepage == snapshot.homepage
         and published.upstream_urls == snapshot.upstream_urls
+        and published.license == snapshot.license
         and _same_json(published.metadata, _publication_metadata(snapshot))
         and expected_files == actual_files
     )

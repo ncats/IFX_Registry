@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import csv
 import gzip
 import hashlib
-import json
 import re
 import shutil
 import tempfile
+import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -177,27 +178,146 @@ def _mp_version(resource: DownloadedResource) -> SourceVersion:
 
 def _disease_ontology_version(resource: DownloadedResource) -> SourceVersion:
     try:
-        payload = json.loads(resource.path.read_text(encoding="utf-8"))
-        graph_meta = (payload.get("graphs") or [{}])[0].get("meta") or {}
-    except (OSError, ValueError, TypeError, AttributeError) as error:
-        raise SourceValidationError("Disease Ontology JSON metadata is invalid") from error
-    for entry in graph_meta.get("basicPropertyValues") or []:
-        if entry.get("pred") == "http://www.w3.org/2002/07/owl#versionInfo" and entry.get("val"):
-            value = str(entry["val"])
-            return SourceVersion(
-                value,
-                version_date=_iso_date_or_none(value),
-                evidence={"type": "owl_version_info", "graph_version": value},
-            )
-    version_uri = graph_meta.get("version")
-    if version_uri:
-        value = str(version_uri).rstrip("/").rsplit("/", 2)[-2]
-        return SourceVersion(
-            value,
-            version_date=_iso_date_or_none(value),
-            evidence={"type": "owl_version_uri", "graph_version": str(version_uri)},
+        with resource.path.open(encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("[Term]"):
+                    break
+                if line.startswith("data-version: "):
+                    raw = line.removeprefix("data-version: ").strip()
+                    match = re.fullmatch(r"releases/(\d{4}-\d{2}-\d{2})/doid\.obo", raw)
+                    if match is None:
+                        raise SourceValidationError(
+                            f"Disease Ontology OBO has invalid data-version: {raw}"
+                        )
+                    value = match.group(1)
+                    version_date = _iso_date_or_none(value)
+                    if version_date is None:
+                        raise SourceValidationError(
+                            f"Disease Ontology OBO has invalid release date: {value}"
+                        )
+                    return SourceVersion(
+                        value,
+                        version_date=version_date,
+                        evidence={"type": "obo_data_version", "data_version": raw},
+                    )
+    except OSError as error:
+        raise SourceValidationError("Could not read Disease Ontology OBO header") from error
+    raise SourceValidationError("Disease Ontology OBO has no data-version header")
+
+
+def _efo_version(resource: DownloadedResource) -> SourceVersion:
+    try:
+        with resource.path.open(encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("[Term]"):
+                    break
+                if line.startswith("data-version: "):
+                    raw = line.removeprefix("data-version: ").strip()
+                    match = re.fullmatch(
+                        r"https?://www\.ebi\.ac\.uk/efo/releases/(v\d+\.\d+\.\d+)/efo\.owl",
+                        raw,
+                    )
+                    if match is None:
+                        raise SourceValidationError(
+                            f"EFO OBO has invalid data-version: {raw}"
+                        )
+                    return SourceVersion(
+                        match.group(1),
+                        evidence={"type": "obo_data_version", "data_version": raw},
+                    )
+    except OSError as error:
+        raise SourceValidationError("Could not read EFO OBO header") from error
+    raise SourceValidationError("EFO OBO has no data-version header")
+
+
+def _orphanet_gene_associations_version(resource: DownloadedResource) -> SourceVersion:
+    exported_at = None
+    declared_disorders = None
+    disorders = 0
+    try:
+        for event, element in ET.iterparse(resource.path, events=("start", "end")):
+            tag = element.tag.rsplit("}", 1)[-1]
+            if event == "start" and tag == "JDBOR":
+                exported_at = element.get("date")
+            elif event == "start" and tag == "DisorderList":
+                declared_disorders = element.get("count")
+            elif event == "end":
+                if tag == "Disorder":
+                    disorders += 1
+                element.clear()
+    except (OSError, ET.ParseError) as error:
+        raise SourceValidationError(
+            f"Could not parse Orphadata gene-association XML: {error}"
+        ) from error
+    try:
+        exported = datetime.strptime(exported_at or "", "%Y-%m-%d %H:%M:%S")
+    except ValueError as error:
+        raise SourceValidationError(
+            f"Orphadata gene-association XML has invalid export date {exported_at!r}"
+        ) from error
+    if not declared_disorders or not declared_disorders.isdigit():
+        raise SourceValidationError("Orphadata gene-association XML lacks DisorderList count")
+    if disorders == 0 or disorders != int(declared_disorders):
+        raise SourceValidationError(
+            f"Orphadata gene-association XML has {disorders} disorders; "
+            f"declared {declared_disorders}"
         )
-    raise SourceValidationError("Disease Ontology JSON has no release version")
+    return SourceVersion(
+        exported.date().isoformat(),
+        version_date=exported.date(),
+        evidence={
+            "type": "xml_export_date",
+            "exported_at": exported_at,
+            "disorders": disorders,
+        },
+    )
+
+
+def _clingen_version(resource: DownloadedResource) -> SourceVersion:
+    required_columns = {
+        "GENE SYMBOL", "GENE ID (HGNC)", "DISEASE LABEL", "DISEASE ID (MONDO)",
+        "CLASSIFICATION", "CLASSIFICATION DATE",
+    }
+    try:
+        with resource.path.open(newline="", encoding="utf-8-sig") as handle:
+            reader = csv.reader(handle)
+            title = next(reader)
+            created = next(reader)
+            next(reader)
+            next(reader)
+            columns = next(reader)
+            next(reader)
+            first_data = next(reader)
+    except (OSError, UnicodeError, csv.Error, StopIteration) as error:
+        raise SourceValidationError(
+            "ClinGen gene-validity CSV is unreadable or incomplete"
+        ) from error
+    if not title or title[0] != "CLINGEN GENE DISEASE VALIDITY CURATIONS":
+        raise SourceValidationError("ClinGen gene-validity CSV has an unexpected title")
+    if not created:
+        raise SourceValidationError("ClinGen gene-validity CSV has no creation date")
+    match = re.fullmatch(r"FILE CREATED: (\d{4}-\d{2}-\d{2})", created[0])
+    if match is None:
+        raise SourceValidationError(
+            f"ClinGen gene-validity CSV has an invalid creation date: {created[0]!r}"
+        )
+    version_date = _iso_date_or_none(match.group(1))
+    if version_date is None:
+        raise SourceValidationError("ClinGen gene-validity CSV has an invalid calendar date")
+    if not required_columns.issubset(columns):
+        raise SourceValidationError("ClinGen gene-validity CSV is missing required columns")
+    if len(first_data) != len(columns) or not all(first_data[index] for index in (0, 1, 2)):
+        raise SourceValidationError("ClinGen gene-validity CSV has no valid data row")
+    digest = hashlib.sha256(resource.path.read_bytes()).hexdigest()
+    return SourceVersion(
+        f"{version_date.isoformat()}-sha256-{digest[:12]}",
+        version_date=version_date,
+        evidence={
+            "type": "csv_file_created_and_content_hash",
+            "file_created": match.group(1),
+            "sha256": digest,
+        },
+    )
 
 
 def _refmet_version(resource: DownloadedResource) -> SourceVersion:
@@ -262,10 +382,37 @@ INSPECTED_FILE_SOURCES: dict[str, InspectedFileSourceDefinition] = {
     ),
     "disease_ontology": InspectedFileSourceDefinition(
         DatasetId("disease_ontology", "ontology"),
-        HttpFileSpec("https://purl.obolibrary.org/obo/doid.json", "doid.json"),
+        HttpFileSpec("https://purl.obolibrary.org/obo/doid.obo", "doid.obo"),
         "https://disease-ontology.org/",
-        "Downloads the ontology and reads its embedded OWL release version.",
+        "Downloads the ontology and reads its OBO data-version header.",
         _disease_ontology_version,
+    ),
+    "efo_ontology": InspectedFileSourceDefinition(
+        DatasetId("efo", "ontology"),
+        HttpFileSpec("https://www.ebi.ac.uk/efo/efo.obo", "efo.obo"),
+        "https://www.ebi.ac.uk/efo/",
+        "Downloads the ontology and reads its OBO data-version header.",
+        _efo_version,
+    ),
+    "orphanet_gene_associations": InspectedFileSourceDefinition(
+        DatasetId("orphanet", "gene_associations"),
+        HttpFileSpec(
+            "https://www.orphadata.com/data/xml/en_product6.xml",
+            "orphanet_gene_associations.xml",
+        ),
+        "https://sciences.orphadata.com/genes/",
+        "Downloads the XML and reads its embedded JDBOR export date.",
+        _orphanet_gene_associations_version,
+    ),
+    "clingen_gene_validity": InspectedFileSourceDefinition(
+        DatasetId("clingen", "gene_validity"),
+        HttpFileSpec(
+            "https://search.clinicalgenome.org/kb/gene-validity/download",
+            "clingen_gene_validity.csv",
+        ),
+        "https://search.clinicalgenome.org/kb/gene-validity",
+        "Downloads the CSV and versions it by FILE CREATED date and content hash.",
+        _clingen_version,
     ),
     "refmet_metabolites_csv": InspectedFileSourceDefinition(
         DatasetId("refmet", "metabolites_csv"),

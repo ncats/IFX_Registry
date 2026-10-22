@@ -225,6 +225,11 @@ audits request manual confirmation rather than treating the absence of an
 installed checker as an unexplained failure. Callers may supply a more specific
 `metadata.version_method` when they have a documented versioning policy.
 
+For a source that requires a license to use, pass its name as `license="OMIM"`
+or `license="UMLS"`. Registry records the requirement with that exact snapshot
+and marks it in the catalog. This is informational metadata; it does not grant
+access or check a user's license.
+
 ## Build or Register Derived Data
 
 IFX Registry owns reusable transformations that produce generally useful data

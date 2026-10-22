@@ -118,24 +118,15 @@ class BabelHumanCompendiumSource(GeneratedSnapshotSource):
             self._root_url,
             timeout=request.timeout.total_seconds(),
         )
-        candidates = {
-            value: _babel_version_date(value)
-            for value in _VERSION_PATTERN.findall(response.text)
-        }
-        if not candidates:
-            raise SourceValidationError(
-                f"Babel release listing {self._root_url} contained no dated releases"
-            )
-        version = max(candidates, key=candidates.__getitem__)
-        version_date = candidates[version]
+        parsed = parse_babel_release_listing(response.text)
         return SourceVersion(
-            version,
-            version_date=version_date,
+            parsed.value,
+            version_date=parsed.version_date,
             evidence={
                 "method": "newest_versioned_babel_directory",
                 "listing_url": response.metadata.final_url,
-                "release_url": self._release_url(version),
-                "candidate_count": len(candidates),
+                "release_url": self._release_url(parsed.value),
+                "candidate_count": parsed.evidence["candidate_count"],
             },
         )
 
@@ -296,6 +287,21 @@ def _babel_version_date(value: str) -> date:
     if match is None or match.group(2) not in _MONTHS:
         raise SourceValidationError(f"Invalid Babel release name: {value}")
     return date(int(match.group(1)), _MONTHS[match.group(2)], int(match.group(3)))
+
+
+def parse_babel_release_listing(text: str) -> SourceVersion:
+    candidates = {
+        value: _babel_version_date(value)
+        for value in _VERSION_PATTERN.findall(text)
+    }
+    if not candidates:
+        raise SourceValidationError("Babel release listing contained no dated releases")
+    version = max(candidates, key=candidates.__getitem__)
+    return SourceVersion(
+        version,
+        version_date=candidates[version],
+        evidence={"candidate_count": len(candidates)},
+    )
 
 
 def _select_complete_file_set(

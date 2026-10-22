@@ -15,7 +15,7 @@ from ifx_registry.application.contracts import FetchRequest, VersionProbeRequest
 from ifx_registry.application.ports.source import SourceAdapter
 from ifx_registry.application.progress import ProgressUpdate
 from ifx_registry.application.versioning import ensure_expected_version
-from ifx_registry.domain.errors import SourceContractError
+from ifx_registry.domain.errors import SourceContractError, SourceValidationError
 from ifx_registry.domain.models import DatasetId, SnapshotFile, SourceSnapshot, SourceVersion
 from ifx_registry.infrastructure.http import DownloadedResource, HttpGateway
 from ifx_registry.infrastructure.sources.version_strategies import SourceVersionStrategy
@@ -29,6 +29,7 @@ class HttpFileSpec:
     url: str
     name: str
     gzip_download: bool = False
+    gzip_decompress: bool = False
 
     def __post_init__(self) -> None:
         path = PurePosixPath(self.name)
@@ -36,6 +37,8 @@ class HttpFileSpec:
             raise ValueError("HTTP snapshot file name must be a safe relative POSIX path")
         if not self.url.strip():
             raise ValueError("HTTP snapshot file URL must not be blank")
+        if self.gzip_download and self.gzip_decompress:
+            raise ValueError("HTTP snapshot file cannot compress and decompress the same download")
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,7 +140,11 @@ class HttpSnapshotSource(SourceAdapter):
                     local_path=snapshot_dir / downloaded.spec.name,
                     relative_path=PurePosixPath(downloaded.spec.name),
                     source_url=downloaded.resource.metadata.final_url,
-                    content_type=downloaded.resource.metadata.header("content-type"),
+                    content_type=(
+                        "text/plain"
+                        if downloaded.spec.gzip_decompress
+                        else downloaded.resource.metadata.header("content-type")
+                    ),
                 )
                 for downloaded in downloads
             ),
@@ -202,7 +209,11 @@ class HttpSnapshotSource(SourceAdapter):
                 (
                     workspace.staging_path / f".{file_spec.name}.uncompressed"
                     if file_spec.gzip_download
-                    else workspace.staging_path / file_spec.name
+                    else (
+                        workspace.staging_path / f".{file_spec.name}.compressed"
+                        if file_spec.gzip_decompress
+                        else workspace.staging_path / file_spec.name
+                    )
                 ),
                 timeout=request.timeout.total_seconds(),
             )
@@ -213,6 +224,18 @@ class HttpSnapshotSource(SourceAdapter):
                         shutil.copyfileobj(source_handle, compressed_handle)
                 resource.path.unlink()
                 resource = DownloadedResource(compressed_path, resource.metadata)
+            elif file_spec.gzip_decompress:
+                decompressed_path = workspace.staging_path / file_spec.name
+                try:
+                    with gzip.open(resource.path, "rb") as compressed_handle:
+                        with decompressed_path.open("wb") as output_handle:
+                            shutil.copyfileobj(compressed_handle, output_handle)
+                except (OSError, EOFError) as error:
+                    raise SourceValidationError(
+                        f"Could not decompress {file_spec.name} from {file_spec.url}: {error}"
+                    ) from error
+                resource.path.unlink()
+                resource = DownloadedResource(decompressed_path, resource.metadata)
             downloads.append(DownloadedSourceFile(file_spec, resource))
         return tuple(downloads)
 

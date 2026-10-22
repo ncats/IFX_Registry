@@ -232,12 +232,14 @@ def test_public_client_builds_manual_source_publication(tmp_path: Path) -> None:
         capture_method="provider_export",
         version_evidence={"release": "2026-09"},
         validation={"rows": 1},
+        license="OMIM",
     )
 
     assert result is sentinel
     assert publisher.snapshot.files[0].source_url is None
     assert publisher.snapshot.metadata["capture_method"] == "provider_export"
     assert publisher.snapshot.metadata["version_method"] == "manual_provider_export"
+    assert publisher.snapshot.license == "OMIM"
     assert output.exists()
 
 

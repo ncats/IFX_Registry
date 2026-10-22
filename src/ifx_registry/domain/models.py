@@ -589,6 +589,7 @@ class SourceSnapshot:
     homepage: str | None = None
     upstream_urls: tuple[str, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    license: str | None = None
 
     def __post_init__(self) -> None:
         if not self.files:
@@ -598,6 +599,8 @@ class SourceSnapshot:
         paths = [file.relative_path for file in self.files]
         if len(paths) != len(set(paths)):
             raise ValueError("source snapshot file paths must be unique")
+        if self.license is not None and not self.license.strip():
+            raise ValueError("source snapshot license must not be blank")
 
     @property
     def snapshot_id(self) -> str:

@@ -119,6 +119,9 @@ function applySourceFilter() {
         row.hidden = !matches;
         if (matches) visible += 1;
     });
+    document.querySelectorAll("[data-source-group]").forEach((group) => {
+        group.hidden = ![...group.querySelectorAll("[data-source-row]")].some((row) => !row.hidden);
+    });
     const count = document.querySelector("#source-search-count");
     if (count) count.textContent = `${visible} ${visible === 1 ? "source" : "sources"}`;
     const empty = document.querySelector("#source-search-empty");
@@ -151,6 +154,9 @@ function initializeCatalogSearch(root = document) {
             const matches = matchesSearch && matchesKind;
             row.hidden = !matches;
             if (matches) visible += 1;
+        });
+        document.querySelectorAll("[data-catalog-group]").forEach((group) => {
+            group.hidden = ![...group.querySelectorAll("[data-catalog-row]")].some((row) => !row.hidden);
         });
         const count = document.querySelector("#catalog-search-count");
         if (count) count.textContent = `${visible} ${visible === 1 ? "dataset" : "datasets"}`;
