@@ -1,6 +1,7 @@
 """Exact-version dependency graph projections for Registry detail pages."""
 
 import hashlib
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from types import SimpleNamespace
@@ -293,3 +294,76 @@ def test_rebuild_status_propagates_through_latest_derived_inputs() -> None:
         lineages[leaf_id].dependencies[0].freshness
         is DependencyFreshness.LATEST_REGISTERED
     )
+
+
+def test_historical_self_input_does_not_make_latest_release_stale() -> None:
+    source_id = DatasetId("source", "records")
+    output_id = DatasetId("derived", "targets")
+    old_source = _source(source_id, "1", 1)
+    new_source = _source(source_id, "2", 2)
+    first = _derived(
+        output_id, "1", (SnapshotRef.source(old_source.snapshot_id),), 3,
+    )
+    first = replace(
+        first,
+        inputs=(RegisteredSnapshotRef(
+            SnapshotRef.source(old_source.snapshot_id), old_source.manifest_uri,
+        ),),
+    )
+    second = _derived(
+        output_id, "2", (SnapshotRef.source(new_source.snapshot_id),), 4,
+    )
+    second = replace(
+        second,
+        inputs=(
+            second.inputs[0],
+            RegisteredSnapshotRef(
+                SnapshotRef.derived(first.snapshot_id), first.manifest_uri,
+            ),
+        ),
+    )
+    catalog = BrowseRegistryCatalog(
+        cast(Any, Catalog(old_source, new_source)),
+        cast(Any, Catalog(first, second)),
+        cast(Any, Catalog()),
+    ).execute()
+    output = next(item for item in catalog if item.dataset == output_id)
+
+    assert output.rebuild_status is RebuildStatus.CURRENT
+    assert output.latest_lineage is not None
+    assert output.latest_lineage.dependencies[1].reference.snapshot_id == first.snapshot_id
+
+
+def test_missing_historical_grandparent_breaks_latest_release() -> None:
+    source_id = DatasetId("source", "records")
+    output_id = DatasetId("derived", "targets")
+    source = _source(source_id, "1", 1)
+    first = _derived(output_id, "1", (SnapshotRef.source(source.snapshot_id),), 2)
+    second = _derived(output_id, "2", (SnapshotRef.source(source.snapshot_id),), 3)
+    second = replace(
+        second,
+        inputs=(
+            second.inputs[0],
+            RegisteredSnapshotRef(
+                SnapshotRef.derived(first.snapshot_id), first.manifest_uri,
+            ),
+        ),
+    )
+    third = _derived(output_id, "3", (SnapshotRef.source(source.snapshot_id),), 4)
+    third = replace(
+        third,
+        inputs=(
+            third.inputs[0],
+            RegisteredSnapshotRef(
+                SnapshotRef.derived(second.snapshot_id), second.manifest_uri,
+            ),
+        ),
+    )
+    catalog = BrowseRegistryCatalog(
+        cast(Any, Catalog(source)),
+        cast(Any, Catalog(second, third)),
+        cast(Any, Catalog()),
+    ).execute()
+    output = next(item for item in catalog if item.dataset == output_id)
+
+    assert output.rebuild_status is RebuildStatus.BROKEN

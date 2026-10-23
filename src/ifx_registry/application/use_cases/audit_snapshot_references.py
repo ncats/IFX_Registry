@@ -11,6 +11,7 @@ from ifx_registry.application.contracts import (
     DEFAULT_SOURCE_CHECK_FRESHNESS,
     DEFAULT_SOURCE_TIMEOUT,
 )
+from ifx_registry.application.historical_lineage import inspect_historical_lineage
 from ifx_registry.application.ports.derived_builds import DerivedRecipeCatalog
 from ifx_registry.application.use_cases.browse_catalog import (
     BrowseRegistryCatalog,
@@ -48,6 +49,7 @@ class AuditDisposition(StrEnum):
     REBUILD_DERIVED = "rebuild_derived"
     BLOCKED = "blocked"
     UNVERIFIABLE = "unverifiable"
+    HISTORICAL = "historical"
 
 
 class AuditCaveatCode(StrEnum):
@@ -145,7 +147,10 @@ class RegistryAudit:
 
     @property
     def is_current(self) -> bool:
-        return all(item.is_current for item in self.entries)
+        return all(
+            item.is_current or item.disposition is AuditDisposition.HISTORICAL
+            for item in self.entries
+        )
 
     @property
     def is_complete(self) -> bool:
@@ -381,7 +386,71 @@ class AuditSnapshotReferences:
                     reason="The exact derived snapshot is not registered",
                 )
             dependencies = tuple(item.ref for item in snapshot.inputs)
-            dependency_results = tuple(visit(item) for item in dependencies)
+            dependency_results_list: list[ReferenceAudit] = []
+            for registered in snapshot.inputs:
+                if (
+                    registered.kind is SnapshotKind.DERIVED
+                    and registered.ref.dataset == snapshot.dataset
+                    and registered.ref.version != snapshot.version
+                ):
+                    check = inspect_historical_lineage(
+                        snapshot,
+                        registered,
+                        lambda ref: _catalog_version(
+                            datasets.get((_catalog_kind(ref.kind), ref.dataset)),
+                            ref.version.value,
+                        ),
+                    )
+                    for verified, children in check.verified:
+                        if any(item.reference == verified.ref for item in ordered):
+                            continue
+                        ordered.append(
+                            ReferenceAudit(
+                                verified.ref,
+                                AuditDisposition.HISTORICAL,
+                                children,
+                                pin_registered=True,
+                                reason=(
+                                    "Exact historical lineage is registered; upstream "
+                                    "freshness is assessed only when requested as a root"
+                                ),
+                            )
+                        )
+                    if check.failure is not None:
+                        failure = check.failure
+                        failed_ref, reason = failure.reference, failure.reason
+                        if failure.missing and not any(
+                            item.reference == failed_ref for item in ordered
+                        ):
+                            ordered.append(
+                                ReferenceAudit(
+                                    failed_ref, AuditDisposition.BLOCKED, reason=reason,
+                                )
+                            )
+                        blocked = ReferenceAudit(
+                            registered.ref,
+                            AuditDisposition.BLOCKED,
+                            (failed_ref,) if failed_ref != registered.ref else (),
+                            reason=reason,
+                        )
+                        dependency_results_list.append(blocked)
+                    else:
+                        children = next(
+                            children for verified, children in check.verified
+                            if verified.ref == registered.ref
+                        )
+                        dependency_results_list.append(
+                            ReferenceAudit(
+                                registered.ref,
+                                AuditDisposition.HISTORICAL,
+                                children,
+                                pin_registered=True,
+                                reason="Exact historical lineage is registered",
+                            )
+                        )
+                else:
+                    dependency_results_list.append(visit(registered.ref))
+            dependency_results = tuple(dependency_results_list)
             caveats = _merge_caveats(dependency_results)
             blocking_dispositions = {
                 AuditDisposition.REGISTER_SOURCE,
@@ -431,6 +500,28 @@ class AuditSnapshotReferences:
                 )
             descriptor = recipes.get(reference.dataset)
             if descriptor is None:
+                changed_inputs = tuple(
+                    item for item in dependency_results
+                    if item.disposition is AuditDisposition.UPDATE_PIN
+                )
+                if changed_inputs:
+                    return ReferenceAudit(
+                        reference,
+                        AuditDisposition.REBUILD_DERIVED,
+                        dependencies,
+                        pin_registered=True,
+                        latest_registered_reference=latest,
+                        reason=(
+                            "Publish a new immutable caller-produced release using "
+                            "the newer registered direct inputs: "
+                            + ", ".join(
+                                item.recommended_reference.snapshot_id
+                                for item in changed_inputs
+                                if item.recommended_reference is not None
+                            )
+                        ),
+                        caveats=caveats,
+                    )
                 return ReferenceAudit(
                     reference,
                     AuditDisposition.UNVERIFIABLE,
@@ -590,7 +681,11 @@ class AuditSnapshotReferences:
 
         for root in normalized_roots:
             visit(root)
-        return RegistryAudit(normalized_roots, tuple(ordered), observed_at)
+        entries = tuple(
+            item for item in ordered
+            if item.reference not in results or item is results[item.reference]
+        )
+        return RegistryAudit(normalized_roots, entries, observed_at)
 
 
 def _catalog_kind(kind: SnapshotKind) -> CatalogKind:
@@ -736,6 +831,17 @@ def _merge_caveat_sets(
 
 
 def _blocked_derived_reason(items: Sequence[ReferenceAudit]) -> str:
+    invalid_lineage = next(
+        (
+            item.reason for item in items
+            if item.reason.startswith(
+                ("Historical predecessor", "Historical input", "Historical dependency")
+            )
+        ),
+        None,
+    )
+    if invalid_lineage is not None:
+        return invalid_lineage
     rebuilds = tuple(
         item.reference.snapshot_id
         for item in items

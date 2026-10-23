@@ -876,3 +876,233 @@ def test_successful_probe_recommends_upstream_even_if_registered_earlier() -> No
     assert result.disposition is AuditDisposition.UPDATE_PIN
     assert result.recommended_reference == SnapshotRef.source(newer_data.snapshot_id)
     assert not result.caveats
+
+
+def _successive_caller_releases(
+    first_source: SnapshotRef,
+    second_source: SnapshotRef,
+) -> tuple[PublishedDerivedSnapshot, PublishedDerivedSnapshot]:
+    dataset = DatasetId("ifx", "targets")
+    first = replace(
+        _caller_derived(dataset, first_source),
+        manifest_sha256="a" * 64,
+    )
+    second = replace(
+        _caller_derived(dataset, second_source),
+        version=DatasetVersion("2"),
+        published_at=datetime(2026, 9, 11, tzinfo=UTC),
+        manifest_uri="s3://registry/derived/ifx/targets/2/manifest.yaml",
+        inputs=(
+            _registered(second_source, "source"),
+            RegisteredSnapshotRef(
+                SnapshotRef.derived(first.snapshot_id),
+                first.manifest_uri,
+                first.manifest_sha256,
+                "previous",
+            ),
+        ),
+    )
+    return first, second
+
+
+def test_historical_predecessor_does_not_propagate_old_source_freshness() -> None:
+    source_id = DatasetId("example", "records")
+    old = _source(source_id, "1", 1)
+    current = _source(source_id, "2", 2)
+    first, second = _successive_caller_releases(
+        SnapshotRef.source(old.snapshot_id),
+        SnapshotRef.source(current.snapshot_id),
+    )
+    root = SnapshotRef.derived(second.snapshot_id)
+    audit = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((
+            _source_dataset(old, current), _derived_dataset(first, second),
+        ))),
+        cast(Any, Check({source_id: "2"})),
+        cast(Any, Recipes()),
+    )
+
+    report = audit.execute((root,))
+
+    assert report.for_reference(root).disposition is AuditDisposition.UNVERIFIABLE
+    assert (
+        report.for_reference(SnapshotRef.derived(first.snapshot_id)).disposition
+        is AuditDisposition.HISTORICAL
+    )
+    assert SnapshotRef.derived(first.snapshot_id) in report.for_reference(root).dependencies
+    assert not any(item.disposition is AuditDisposition.REBUILD_DERIVED for item in report.entries)
+
+    both = audit.execute((root, SnapshotRef.derived(first.snapshot_id)))
+    assert (
+        both.for_reference(SnapshotRef.derived(first.snapshot_id)).disposition
+        is AuditDisposition.REBUILD_DERIVED
+    )
+
+
+def test_caller_release_rebuilds_for_its_own_newer_source() -> None:
+    source_id = DatasetId("example", "records")
+    old = _source(source_id, "1", 1)
+    current = _source(source_id, "2", 2)
+    first, second = _successive_caller_releases(
+        SnapshotRef.source(old.snapshot_id),
+        SnapshotRef.source(old.snapshot_id),
+    )
+    root = SnapshotRef.derived(second.snapshot_id)
+    report = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((
+            _source_dataset(old, current), _derived_dataset(first, second),
+        ))),
+        cast(Any, Check({source_id: "2"})),
+        cast(Any, Recipes()),
+    ).execute((root,))
+
+    result = report.for_reference(root)
+    assert result.disposition is AuditDisposition.REBUILD_DERIVED
+    assert "example:records:2" in result.reason
+    assert (
+        report.for_reference(SnapshotRef.derived(first.snapshot_id)).disposition
+        is AuditDisposition.HISTORICAL
+    )
+
+
+def test_mismatched_historical_predecessor_blocks_current_release() -> None:
+    source_id = DatasetId("example", "records")
+    source = _source(source_id, "1", 1)
+    first, second = _successive_caller_releases(
+        SnapshotRef.source(source.snapshot_id),
+        SnapshotRef.source(source.snapshot_id),
+    )
+    second = replace(
+        second,
+        inputs=(second.inputs[0], replace(second.inputs[1], manifest_sha256="f" * 64)),
+    )
+    root = SnapshotRef.derived(second.snapshot_id)
+    report = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((
+            _source_dataset(source), _derived_dataset(first, second),
+        ))),
+        cast(Any, Check({source_id: "1"})),
+        cast(Any, Recipes()),
+    ).execute((root,))
+
+    assert report.for_reference(root).disposition is AuditDisposition.BLOCKED
+    assert "manifest identity" in report.for_reference(root).reason
+    both = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((
+            _source_dataset(source), _derived_dataset(first, second),
+        ))),
+        cast(Any, Check({source_id: "1"})),
+        cast(Any, Recipes()),
+    ).execute((root, SnapshotRef.derived(first.snapshot_id)))
+    assert both.for_reference(root).disposition is AuditDisposition.BLOCKED
+    assert (
+        both.for_reference(SnapshotRef.derived(first.snapshot_id)).disposition
+        is AuditDisposition.UNVERIFIABLE
+    )
+
+
+def test_missing_historical_grandparent_blocks_latest_release() -> None:
+    source_id = DatasetId("example", "records")
+    source = _source(source_id, "1", 1)
+    first, second = _successive_caller_releases(
+        SnapshotRef.source(source.snapshot_id),
+        SnapshotRef.source(source.snapshot_id),
+    )
+    third = replace(
+        second,
+        version=DatasetVersion("3"),
+        published_at=datetime(2026, 9, 12, tzinfo=UTC),
+        manifest_uri="s3://registry/derived/ifx/targets/3/manifest.yaml",
+        inputs=(
+            second.inputs[0],
+            RegisteredSnapshotRef(
+                SnapshotRef.derived(second.snapshot_id), second.manifest_uri,
+                slot="previous",
+            ),
+        ),
+    )
+    root = SnapshotRef.derived(third.snapshot_id)
+    report = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((
+            _source_dataset(source), _derived_dataset(second, third),
+        ))),
+        cast(Any, Check({source_id: "1"})),
+        cast(Any, Recipes()),
+    ).execute((root,))
+
+    assert report.for_reference(root).disposition is AuditDisposition.BLOCKED
+    assert first.snapshot_id in report.for_reference(root).reason
+    assert (
+        report.for_reference(SnapshotRef.derived(first.snapshot_id)).disposition
+        is AuditDisposition.BLOCKED
+    )
+
+
+def test_historical_cross_version_cycle_is_blocked() -> None:
+    source_id = DatasetId("example", "records")
+    source = _source(source_id, "1", 1)
+    first, second = _successive_caller_releases(
+        SnapshotRef.source(source.snapshot_id),
+        SnapshotRef.source(source.snapshot_id),
+    )
+    first = replace(
+        first,
+        inputs=(
+            first.inputs[0],
+            RegisteredSnapshotRef(
+                SnapshotRef.derived(second.snapshot_id), second.manifest_uri,
+                slot="previous",
+            ),
+        ),
+    )
+    root = SnapshotRef.derived(second.snapshot_id)
+    report = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((
+            _source_dataset(source), _derived_dataset(first, second),
+        ))),
+        cast(Any, Check({source_id: "1"})),
+        cast(Any, Recipes()),
+    ).execute((root,))
+
+    assert report.for_reference(root).disposition is AuditDisposition.BLOCKED
+    assert "Historical dependency cycle" in report.for_reference(root).reason
+
+
+def test_missing_historical_source_blocks_latest_release() -> None:
+    source_id = DatasetId("example", "records")
+    old = _source(source_id, "1", 1)
+    current = _source(source_id, "2", 2)
+    first, second = _successive_caller_releases(
+        SnapshotRef.source(old.snapshot_id),
+        SnapshotRef.source(current.snapshot_id),
+    )
+    root = SnapshotRef.derived(second.snapshot_id)
+    report = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((
+            _source_dataset(current), _derived_dataset(first, second),
+        ))),
+        cast(Any, Check({source_id: "2"})),
+        cast(Any, Recipes()),
+    ).execute((root,))
+
+    assert report.for_reference(root).disposition is AuditDisposition.BLOCKED
+    assert old.snapshot_id in report.for_reference(root).reason
+
+
+def test_historical_lineage_distinguishes_source_and_derived_with_same_id() -> None:
+    dataset = DatasetId("ifx", "targets")
+    source = _source(dataset, "1", 1)
+    first, second = _successive_caller_releases(
+        SnapshotRef.source(source.snapshot_id),
+        SnapshotRef.source(source.snapshot_id),
+    )
+    root = SnapshotRef.derived(second.snapshot_id)
+    report = AuditSnapshotReferences(
+        cast(BrowseRegistryCatalog, Browse((
+            _source_dataset(source), _derived_dataset(first, second),
+        ))),
+        cast(Any, Check({dataset: "1"})),
+        cast(Any, Recipes()),
+    ).execute((root,))
+
+    assert report.for_reference(root).disposition is AuditDisposition.UNVERIFIABLE

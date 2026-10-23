@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from ifx_registry.application.historical_lineage import inspect_historical_lineage
 from ifx_registry.application.ports.catalog import SourceCatalog
 from ifx_registry.application.ports.external import ExternalDatasetVersionCatalog
 from ifx_registry.application.ports.snapshots import (
@@ -453,6 +454,11 @@ def assess_rebuild_statuses(
         (item.dataset, item.version.value): item
         for item in derived
     }
+    snapshots_by_kind = {
+        SnapshotKind.SOURCE: {item.snapshot_id: item for item in sources},
+        SnapshotKind.DERIVED: {item.snapshot_id: item for item in derived},
+        SnapshotKind.EXTERNAL: {item.snapshot_id: item for item in external},
+    }
     results: dict[str, RebuildStatus] = {}
     active: set[str] = set()
 
@@ -464,23 +470,43 @@ def assess_rebuild_statuses(
         active.add(snapshot.snapshot_id)
         lineage = assess_lineage(snapshot, indexes)
         transitive = []
+        historical_inputs: set[str] = set()
+        mismatched_inputs: set[str] = set()
         for dependency in snapshot.inputs:
             if dependency.kind is not SnapshotKind.DERIVED:
                 continue
             input_snapshot = derived_by_ref.get(
                 (dependency.ref.dataset, dependency.ref.version.value)
             )
+            if (
+                dependency.ref.dataset == snapshot.dataset
+                and dependency.ref.version != snapshot.version
+            ):
+                check = inspect_historical_lineage(
+                    snapshot,
+                    dependency,
+                    lambda ref: snapshots_by_kind[ref.kind].get(ref.snapshot_id),
+                )
+                if check.failure is not None:
+                    mismatched_inputs.add(dependency.snapshot_id)
+                else:
+                    historical_inputs.add(dependency.snapshot_id)
+                continue
             if input_snapshot is not None:
                 transitive.append(assess(input_snapshot))
         if lineage.unavailable_count or any(
             item is RebuildStatus.UNKNOWN for item in transitive
         ):
             status = RebuildStatus.UNKNOWN
-        elif lineage.missing_count or any(
+        elif lineage.missing_count or mismatched_inputs or any(
             item is RebuildStatus.BROKEN for item in transitive
         ):
             status = RebuildStatus.BROKEN
-        elif lineage.older_count or any(
+        elif any(
+            item.freshness is DependencyFreshness.OLDER_VERSION
+            and item.reference.snapshot_id not in historical_inputs
+            for item in lineage.dependencies
+        ) or any(
             item is RebuildStatus.STALE for item in transitive
         ):
             status = RebuildStatus.STALE
