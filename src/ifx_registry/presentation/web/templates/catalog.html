@@ -5,6 +5,7 @@
         <h1>Datasets</h1>
         <p>Browse immutable datasets registered in the IFX Data Registry.</p>
     </div>
+    <div class="catalog-refresh"><a class="button secondary" href="{{ request.url.path }}?refresh=1">Refresh catalog</a>{% if cache_loaded_at %}<small>Loaded {{ cache_loaded_at|displaytime }}</small>{% endif %}</div>
 </header>
 
 <div class="catalog-layout{% if has_activity %} has-activity{% endif %}">

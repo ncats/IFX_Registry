@@ -354,6 +354,16 @@ sources:
     display_name: Experimental Factor Ontology
     description: Experimental factors, including disease and cell type terms.
 
+  - adapter: hpo_ontology
+    enabled: true
+    display_name: Human Phenotype Ontology
+    description: HPO phenotype terms and labels used by disease quality checks.
+
+  - adapter: ncit_ontology
+    enabled: true
+    display_name: NCI Thesaurus OBO Edition
+    description: NCIt terms and labels used by disease quality checks.
+
   - adapter: clingen_gene_validity
     enabled: true
     display_name: ClinGen Gene-Disease Validity

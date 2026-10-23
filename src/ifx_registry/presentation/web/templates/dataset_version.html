@@ -10,6 +10,7 @@
     {% include "partials/source_deprecation.html" %}
     {% with deprecation_kind=kind, deprecation_dataset=snapshot.dataset %}{% include "partials/dataset_deprecation.html" %}{% endwith %}
     {% include "partials/recipe_deprecation.html" %}
+    <div class="catalog-refresh"><a class="button secondary" href="{{ request.url.path }}?refresh=1">Refresh catalog</a>{% if cache_loaded_at %}<small>Loaded {{ cache_loaded_at|displaytime }}</small>{% endif %}</div>
 </header>
 <div class="snapshot-summary">
     <div><span>Version</span><strong>{{ snapshot.version }}</strong></div>

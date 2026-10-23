@@ -230,6 +230,72 @@ def _efo_version(resource: DownloadedResource) -> SourceVersion:
     raise SourceValidationError("EFO OBO has no data-version header")
 
 
+def _hpo_version(resource: DownloadedResource) -> SourceVersion:
+    data_version = None
+    ontology = None
+    has_term = False
+    try:
+        with resource.path.open(encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("[Term]"):
+                    has_term = True
+                    break
+                if line.startswith("data-version: "):
+                    data_version = line.removeprefix("data-version: ").strip()
+                elif line.startswith("ontology: "):
+                    ontology = line.removeprefix("ontology: ").strip()
+    except (OSError, UnicodeError) as error:
+        raise SourceValidationError("Could not read HPO OBO header") from error
+    if ontology != "hp.obo":
+        raise SourceValidationError(f"HPO OBO has unexpected ontology: {ontology!r}")
+    if not has_term:
+        raise SourceValidationError("HPO OBO has no terms")
+    match = re.fullmatch(r"hp/releases/(\d{4}-\d{2}-\d{2})", data_version or "")
+    if match is None:
+        raise SourceValidationError(f"HPO OBO has invalid data-version: {data_version!r}")
+    version_date = _iso_date_or_none(match.group(1))
+    if version_date is None:
+        raise SourceValidationError(f"HPO OBO has invalid release date: {match.group(1)}")
+    return SourceVersion(
+        version_date.isoformat(),
+        version_date=version_date,
+        evidence={"type": "obo_data_version", "data_version": data_version},
+    )
+
+
+def _ncit_version(resource: DownloadedResource) -> SourceVersion:
+    data_version = None
+    ontology = None
+    has_term = False
+    try:
+        with resource.path.open(encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("[Term]"):
+                    has_term = True
+                    break
+                if line.startswith("data-version: "):
+                    data_version = line.removeprefix("data-version: ").strip()
+                elif line.startswith("ontology: "):
+                    ontology = line.removeprefix("ontology: ").strip()
+    except (OSError, UnicodeError) as error:
+        raise SourceValidationError("Could not read NCIt OBO header") from error
+    if ontology != "ncit":
+        raise SourceValidationError(f"NCIt OBO has unexpected ontology: {ontology!r}")
+    if not has_term:
+        raise SourceValidationError("NCIt OBO has no terms")
+    match = re.fullmatch(r"releases/(\d{4}-\d{2}-\d{2})", data_version or "")
+    if match is None:
+        raise SourceValidationError(f"NCIt OBO has invalid data-version: {data_version!r}")
+    version_date = _iso_date_or_none(match.group(1))
+    if version_date is None:
+        raise SourceValidationError(f"NCIt OBO has invalid release date: {match.group(1)}")
+    return SourceVersion(
+        version_date.isoformat(),
+        version_date=version_date,
+        evidence={"type": "obo_data_version", "data_version": data_version},
+    )
+
+
 def _orphanet_gene_associations_version(resource: DownloadedResource) -> SourceVersion:
     exported_at = None
     declared_disorders = None
@@ -393,6 +459,20 @@ INSPECTED_FILE_SOURCES: dict[str, InspectedFileSourceDefinition] = {
         "https://www.ebi.ac.uk/efo/",
         "Downloads the ontology and reads its OBO data-version header.",
         _efo_version,
+    ),
+    "hpo_ontology": InspectedFileSourceDefinition(
+        DatasetId("hpo", "ontology"),
+        HttpFileSpec("https://purl.obolibrary.org/obo/hp.obo", "hp.obo"),
+        "https://obofoundry.org/ontology/hp.html",
+        "Downloads the ontology and reads its OBO data-version header.",
+        _hpo_version,
+    ),
+    "ncit_ontology": InspectedFileSourceDefinition(
+        DatasetId("ncit", "ontology"),
+        HttpFileSpec("https://purl.obolibrary.org/obo/ncit.obo", "ncit.obo"),
+        "https://github.com/ncit-obo-org/ncit-obo-edition",
+        "Downloads the ontology and reads its OBO data-version header.",
+        _ncit_version,
     ),
     "orphanet_gene_associations": InspectedFileSourceDefinition(
         DatasetId("orphanet", "gene_associations"),

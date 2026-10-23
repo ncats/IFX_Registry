@@ -9,6 +9,7 @@ from ifx_registry.application.ports.jobs import AcquisitionJobStore
 from ifx_registry.domain.catalog import SourceDescriptor
 from ifx_registry.domain.errors import OperationalStateUnavailableError
 from ifx_registry.domain.jobs import AcquisitionJob
+from ifx_registry.domain.models import DatasetId
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,4 +75,15 @@ class ListSources:
                 recent_successful_jobs=successful_by_dataset[descriptor.dataset],
             )
             for descriptor in descriptors
+        )
+
+    def execute_one(self, dataset: DatasetId) -> SourceOverview | None:
+        if all(
+            descriptor.dataset != dataset
+            for descriptor in self._sources.list_descriptors()
+        ):
+            return None
+        return next(
+            (item for item in self.execute() if item.descriptor.dataset == dataset),
+            None,
         )

@@ -23,6 +23,11 @@ from markupsafe import Markup, escape
 
 from ifx_registry.application.derived_build_models import SelectedRecipeInput
 from ifx_registry.application.ports.derived_builds import DerivedRecipeCatalog
+from ifx_registry.application.ports.external import ExternalDatasetVersionCatalog
+from ifx_registry.application.ports.snapshots import (
+    PublishedDerivedSnapshotCatalog,
+    PublishedSnapshotCatalog,
+)
 from ifx_registry.application.use_cases.acquire_source import (
     AcquireSourceSnapshot,
     StartSourceAcquisition,
@@ -101,6 +106,7 @@ from ifx_registry.infrastructure.source_configuration import (
 )
 from ifx_registry.infrastructure.source_factory import BuiltInSourceFactory
 from ifx_registry.infrastructure.version_check_store import SQLiteSourceVersionCheckStore
+from ifx_registry.presentation.web.catalog_cache import CachedCatalog, WebCatalogCache
 
 _WEB_ROOT = Path(__file__).parent
 
@@ -246,6 +252,7 @@ class WebServices:
     list_source_check_statuses: ListSourceCheckStatuses
     scheduler: ThreadAcquisitionScheduler
     derived_scheduler: ThreadDerivedBuildScheduler
+    catalog_cache: WebCatalogCache | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,6 +317,13 @@ def build_services(settings: WebSettings) -> WebServices:
     snapshots = S3PublishedSnapshotRepository(objects, prefix=settings.s3_prefix)
     derived = S3DerivedSnapshotRepository(objects, prefix=settings.s3_prefix)
     external = S3ExternalDatasetVersionRepository(objects, prefix=settings.s3_prefix)
+    source_cache = CachedCatalog(snapshots.list_all, snapshots.get)
+    derived_cache = CachedCatalog(derived.list_all, derived.get)
+    external_cache = CachedCatalog(external.list_all, external.get)
+    cached_sources = cast(PublishedSnapshotCatalog, source_cache)
+    cached_derived = cast(PublishedDerivedSnapshotCatalog, derived_cache)
+    cached_external = cast(ExternalDatasetVersionCatalog, external_cache)
+    catalog_cache = WebCatalogCache(source_cache, derived_cache, external_cache)
     recipes = InMemoryDerivedRecipeCatalog(built_in_recipes())
     derived_planner = PlanDerivedBuild(recipes, snapshots, derived, external)
     workspaces = LocalAcquisitionWorkspaceProvider(state_directory / "work")
@@ -328,8 +342,10 @@ def build_services(settings: WebSettings) -> WebServices:
         workspaces,
     )
     derived_scheduler = ThreadDerivedBuildScheduler(build_derived.execute)
-    browse_catalog = BrowsePublishedCatalog(snapshots, sources)
-    browse_registry_catalog = BrowseRegistryCatalog(snapshots, derived, external, sources)
+    browse_catalog = BrowsePublishedCatalog(cached_sources, sources)
+    browse_registry_catalog = BrowseRegistryCatalog(
+        cached_sources, cached_derived, cached_external, sources
+    )
     return WebServices(
         list_sources=ListSources(sources, jobs),
         check_source=CheckSourceVersion(sources, checks),
@@ -345,14 +361,18 @@ def build_services(settings: WebSettings) -> WebServices:
         acquisition_queries=AcquisitionQueries(jobs),
         browse_catalog=browse_catalog,
         get_published_dataset=GetPublishedDataset(browse_catalog),
-        get_published_snapshot=GetPublishedSnapshot(snapshots),
+        get_published_snapshot=GetPublishedSnapshot(cached_sources),
         browse_registry_catalog=browse_registry_catalog,
-        get_registry_dataset=GetRegistryDataset(snapshots, derived, external),
-        get_registry_version=GetRegistryVersion(snapshots, derived, external),
+        get_registry_dataset=GetRegistryDataset(
+            cached_sources, cached_derived, cached_external
+        ),
+        get_registry_version=GetRegistryVersion(
+            cached_sources, cached_derived, cached_external
+        ),
         get_registry_dataset_details=GetRegistryDatasetDetails(
-            snapshots,
-            derived,
-            external,
+            cached_sources,
+            cached_derived,
+            cached_external,
             recipes,
         ),
         get_derived_build_options=GetDerivedBuildOptions(
@@ -379,6 +399,7 @@ def build_services(settings: WebSettings) -> WebServices:
         ),
         scheduler=scheduler,
         derived_scheduler=derived_scheduler,
+        catalog_cache=catalog_cache,
     )
 
 
@@ -427,15 +448,12 @@ def create_app(
         except RegistryError:
             return None
 
+    def refresh_catalog(request: Request) -> None:
+        if request.query_params.get("refresh") == "1" and resolved_services.catalog_cache:
+            resolved_services.catalog_cache.refresh()
+
     def find_source_overview(dataset: DatasetId) -> SourceOverview | None:
-        return next(
-            (
-                item
-                for item in resolved_services.list_sources.execute()
-                if item.descriptor.dataset == dataset
-            ),
-            None,
-        )
+        return resolved_services.list_sources.execute_one(dataset)
 
     def source_overview(dataset: DatasetId) -> SourceOverview:
         overview = find_source_overview(dataset)
@@ -530,6 +548,7 @@ def create_app(
         overviews = resolved_services.list_sources.execute()
         registered_by_dataset: dict[DatasetId, PublishedDataset] = {}
         try:
+            refresh_catalog(request)
             datasets = resolved_services.browse_registry_catalog.execute()
             registered_by_dataset = {
                 item.dataset: PublishedDataset(
@@ -594,6 +613,10 @@ def create_app(
                 "active_page": "catalog",
                 "datasets": datasets,
                 "catalog_error": catalog_error,
+                "cache_loaded_at": (
+                    resolved_services.catalog_cache.loaded_at
+                    if resolved_services.catalog_cache else None
+                ),
                 "source_overviews": source_overviews,
                 "recipe_descriptors": {
                     item.dataset: item
@@ -616,11 +639,13 @@ def create_app(
                 "has_failed_activity": has_failed_activity,
                 "source_check_statuses": source_check_statuses,
             },
+            status_code=503 if catalog_error is not None else 200,
         )
 
     @application.get("/sources/review", response_class=HTMLResponse)
     def source_review(request: Request) -> HTMLResponse:
         try:
+            refresh_catalog(request)
             datasets = resolved_services.browse_registry_catalog.execute()
             overviews = resolved_services.list_sources.execute()
             catalog_error = None
@@ -676,6 +701,7 @@ def create_app(
             )
         try:
             dataset = DatasetId(source_name, dataset_name)
+            refresh_catalog(request)
             details = resolved_services.get_registry_dataset_details.execute(kind, dataset)
             published_dataset = details.dataset
         except SnapshotNotFoundError as error:
@@ -742,6 +768,10 @@ def create_app(
             context={
                 "active_page": "catalog",
                 "item": published_dataset,
+                "cache_loaded_at": (
+                    resolved_services.catalog_cache.loaded_at
+                    if resolved_services.catalog_cache else None
+                ),
                 "recipe": (
                     find_recipe_descriptor(published_dataset.dataset)
                     if kind is CatalogKind.DERIVED else None
@@ -811,6 +841,7 @@ def create_app(
         try:
             kind = CatalogKind(kind_name)
             dataset = DatasetId(source_name, dataset_name)
+            refresh_catalog(request)
             details = resolved_services.get_registry_dataset_details.execute(
                 kind,
                 dataset,
@@ -845,6 +876,10 @@ def create_app(
             context={
                 "active_page": "catalog",
                 "snapshot": snapshot,
+                "cache_loaded_at": (
+                    resolved_services.catalog_cache.loaded_at
+                    if resolved_services.catalog_cache else None
+                ),
                 "recipe": (
                     find_recipe_descriptor(snapshot.dataset)
                     if kind is CatalogKind.DERIVED else None

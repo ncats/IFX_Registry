@@ -10,6 +10,7 @@
     {% include "partials/source_deprecation.html" %}
     {% with deprecation_kind=item.kind, deprecation_dataset=item.dataset %}{% include "partials/dataset_deprecation.html" %}{% endwith %}
     {% include "partials/recipe_deprecation.html" %}
+    <div class="catalog-refresh"><a class="button secondary" href="{{ request.url.path }}?refresh=1">Refresh catalog</a>{% if cache_loaded_at %}<small>Loaded {{ cache_loaded_at|displaytime }}</small>{% endif %}</div>
 </header>
 
 {% if item.kind.value == "source" %}
