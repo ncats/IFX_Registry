@@ -225,6 +225,51 @@ audits request manual confirmation rather than treating the absence of an
 installed checker as an unexplained failure. Callers may supply a more specific
 `metadata.version_method` when they have a documented versioning policy.
 
+### ChEMBL Pharos activity export
+
+The repeatable ChEMBL query is saved in
+`src/ifx_registry/infrastructure/sources/chembl_activity_export.py` as `QUERY`.
+It matches the single ChEMBL activity query used by the Pharos ligand and
+protein–ligand adapters at pChEMBL cutoff 5. It selects human single-protein
+activities for small molecules, F/B assays, and rows with a document or the
+patent compound source (38). The captured snapshot contains the compressed TSV,
+the exact SQL, and a JSON contract with the release, dates, row counts, cutoff,
+and file checksums. The TSV encodes SQL `NULL` as `\N`, while an empty source
+string stays empty; leading backslashes in source text are escaped. Capture
+executes the same query in nonoverlapping activity-ID ranges under one
+consistent read-only transaction; the published SQL includes the range binds.
+
+For a new ChEMBL database release, install `ifx-registry[sources]`, then run
+the capture with read-only credentials in the ODIN-style YAML format (`url`,
+`user`, optional `password` and `port`). Pass the exact schema explicitly; the
+capture checks its `version` table before exporting. Use an empty output
+directory. For example:
+
+```bash
+python -m ifx_registry.infrastructure.sources.chembl_activity_export \
+  --credentials /path/to/chembl_credentials.yaml \
+  --schema chembl37 \
+  --output-dir /path/to/chembl37_activity_capture
+```
+
+Review the contract and export, then publish the same files without rerunning
+the database query:
+
+```bash
+python -m ifx_registry.infrastructure.sources.chembl_activity_export \
+  --output-dir /path/to/chembl37_activity_capture \
+  --publish-existing \
+  --registry-credentials /path/to/aws_ifx_registry.yaml
+```
+
+Publication creates the immutable
+`chembl:activity_exports:chembl37-export1` source snapshot. A newer ChEMBL
+release gets a new exact version; a change to query semantics requires a new
+export revision. Consumers may filter to a higher pChEMBL cutoff, but cannot
+recover rows below 5 from this export. They update their exact pin only after
+validating the new rows and graph output. Registry cannot automatically check whether a newer
+ChEMBL database exists, so freshness remains a manual check.
+
 For a source that requires a license to use, pass its name as `license="OMIM"`
 or `license="UMLS"`. Registry records the requirement with that exact snapshot
 and marks it in the catalog. This is informational metadata; it does not grant
@@ -331,11 +376,13 @@ attempts never appear in the catalog.
 
 ## Register an External Dataset Version
 
-The legacy external dataset `drugcentral:drug_database` is deprecated for new
-integrations in favor of the source snapshot `drugcentral:drug_exports`.
-SQL consumers must migrate to the export file contract. The catalog and detail
-pages show a deprecation notice; existing external versions and exact pins remain
-available, and their immutable manifests are unchanged.
+The legacy external datasets `drugcentral:drug_database` and
+`chembl:activity_database` are deprecated for new integrations in favor of
+the source snapshots `drugcentral:drug_exports` and
+`chembl:activity_exports`, respectively. SQL consumers must migrate to the
+relevant export file contract. The catalog and detail pages show deprecation
+notices; existing external versions and exact pins remain available, and their
+immutable manifests are unchanged.
 
 External registrations describe a version that Registry does not store, such
 as a database schema or service release:

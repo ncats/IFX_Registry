@@ -168,7 +168,7 @@ class RegistryAuditClient:
             GetPublishedDataset(published_catalog),
             AuditSnapshotReferences(
                 browse_catalog,
-                CheckSourceVersion(sources),
+                CheckSourceVersion(sources, snapshots=snapshots),
                 recipes,
                 source_check_freshness=source_check_freshness,
             ),

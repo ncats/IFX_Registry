@@ -30,6 +30,15 @@ def _target_graph_notice(file_name: str) -> DatasetDeprecationNotice:
 
 
 DATASET_DEPRECATIONS = {
+    (CatalogKind.EXTERNAL, DatasetId("chembl", "activity_database")):
+        DatasetDeprecationNotice(
+            message=(
+                "For new builds, use the ChEMBL activity export snapshot. "
+                "Existing database-version records remain available."
+            ),
+            replacement=DatasetId("chembl", "activity_exports"),
+            replacement_kind=CatalogKind.SOURCE,
+        ),
     (CatalogKind.EXTERNAL, DatasetId("drugcentral", "drug_database")):
         DatasetDeprecationNotice(
             message=(

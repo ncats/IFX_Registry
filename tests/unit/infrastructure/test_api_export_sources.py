@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -165,7 +166,10 @@ def test_dark_kinome_capture_deduplicates_links(tmp_path: Path) -> None:
 
     snapshot = source.fetch(FetchRequest(tmp_path, expected_version=version))
 
-    assert version.value == "capture_20260909T141516Z"
+    assert version.value == "sha256-" + hashlib.sha256(
+        snapshot.files[0].local_path.read_bytes()
+    ).hexdigest()
+    assert snapshot.version.evidence["sha256"] == version.evidence["sha256"]
     assert snapshot.version.version_date == FIXED_NOW.date()
     assert snapshot.metadata["record_count"] == 2
     assert snapshot.files[0].local_path.read_text().splitlines() == [
@@ -173,6 +177,33 @@ def test_dark_kinome_capture_deduplicates_links(tmp_path: Path) -> None:
         "AAK1\thttps://darkkinome.org/kinase/AAK1",
         "BMP2K\thttps://darkkinome.org/kinase/BMP2K",
     ]
+
+
+def test_content_checked_capture_rejects_changed_data_after_check(tmp_path: Path) -> None:
+    gateway = FakeApiGateway()
+    gateway.text_gets["https://darkkinome.org/data"] = '<a href="/kinase/AAK1">AAK1</a>'
+    source = DarkKinomeSource(gateway, clock=lambda: FIXED_NOW)
+    version = source.discover_latest(VersionProbeRequest())
+    gateway.text_gets["https://darkkinome.org/data"] = '<a href="/kinase/BMP2K">BMP2K</a>'
+
+    with pytest.raises(
+        SourceValidationError, match="content changed between version check and fetch"
+    ):
+        source.fetch(FetchRequest(tmp_path, expected_version=SourceVersion(version.value)))
+    assert not list(tmp_path.rglob("dark_kinome_kinases.tsv"))
+
+
+def test_content_checked_capture_version_is_stable_across_checks() -> None:
+    gateway = FakeApiGateway()
+    gateway.json_gets["https://kb.linkedomics.org/data/list/gene"] = ["TP53"]
+    first = LinkedOmicsGenesSource(gateway, clock=lambda: FIXED_NOW)
+    later = LinkedOmicsGenesSource(
+        gateway, clock=lambda: datetime(2026, 9, 10, 14, 15, 16, tzinfo=UTC)
+    )
+
+    assert first.discover_latest(VersionProbeRequest()).value == (
+        later.discover_latest(VersionProbeRequest()).value
+    )
 
 
 def test_resolute_capture_flattens_gene_identifiers(tmp_path: Path) -> None:
@@ -247,7 +278,5 @@ def test_resolute_rejects_changed_nested_collection_shape(tmp_path: Path) -> Non
         "data": {"genesList": [{"symbol": "SLC1A1", "proteinsList": {}}]}
     }
     source = ResoluteGenesSource(gateway, clock=lambda: FIXED_NOW)
-    version = source.discover_latest(VersionProbeRequest())
-
     with pytest.raises(SourceValidationError, match="proteinsList was not a list"):
-        source.fetch(FetchRequest(tmp_path, expected_version=version))
+        source.discover_latest(VersionProbeRequest())

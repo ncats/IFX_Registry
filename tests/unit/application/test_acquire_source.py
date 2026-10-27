@@ -1,5 +1,6 @@
 """Tests for the source publication workflow."""
 
+import hashlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 
@@ -81,6 +82,21 @@ class RecordingScheduler(AcquisitionScheduler):
         self.job_ids.append(job_id)
 
 
+class ContentCheckedSource(ExampleSource):
+    def __init__(self, digest: str):
+        self.digest = digest
+
+    def discover_latest(self, request: VersionProbeRequest) -> SourceVersion:
+        return SourceVersion(
+            f"sha256-{self.digest}",
+            evidence={
+                "type": "generated_content_sha256",
+                "sha256": self.digest,
+                "file_name": "records.tsv",
+            },
+        )
+
+
 def _catalog() -> InMemorySourceCatalog:
     source = ExampleSource()
     descriptor = SourceDescriptor(source.dataset, "Example Records", "Test records", 1)
@@ -114,6 +130,30 @@ def test_acquisition_publishes_manifest_and_completes_job(tmp_path: Path) -> Non
         "commit",
         "sources/example/records/1/manifest.yaml",
     )
+
+
+def test_content_check_reuses_registered_capture_only_when_bytes_match(tmp_path: Path) -> None:
+    path = tmp_path / "records.tsv"
+    path.write_text("id\n1\n")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    source = ContentCheckedSource(digest)
+    catalog = InMemorySourceCatalog(
+        ((SourceDescriptor(source.dataset, "Example Records", "Test records", 1), source),)
+    )
+    snapshots = S3PublishedSnapshotRepository(FakeObjectStore())
+    snapshots.publish(
+        SourceSnapshot(
+            dataset=source.dataset,
+            version=SourceVersion("capture_20260909T141516Z"),
+            files=(SnapshotFile(path, PurePosixPath("records.tsv"), "https://example.org/records.tsv"),),
+            downloaded_at=datetime.now(UTC),
+        )
+    )
+    check = CheckSourceVersion(catalog, snapshots=snapshots)
+
+    assert check.execute(source.dataset).value == "capture_20260909T141516Z"
+    source.digest = "b" * 64
+    assert check.execute(source.dataset).value == "sha256-" + "b" * 64
 
 
 def test_start_rejects_duplicate_active_job(tmp_path: Path) -> None:

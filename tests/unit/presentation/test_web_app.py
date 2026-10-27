@@ -1397,3 +1397,55 @@ async def test_drugcentral_external_deprecation_preserves_published_versions(
             assert replacement.status_code == 200
             assert '<span class="deprecation-badge">Deprecated</span>' not in replacement.text
     assert repository.get(legacy.dataset, "54") == legacy
+
+
+@pytest.mark.anyio
+async def test_chembl_external_deprecation_points_to_activity_exports(
+    tmp_path: Path,
+) -> None:
+    objects = FakeObjectStore()
+    repository = S3ExternalDatasetVersionRepository(objects)
+    legacy = repository.publish(
+        ExternalDatasetVersion(
+            dataset=DatasetId("chembl", "activity_database"),
+            version=DatasetVersion("chembl37"),
+            interface="mysql",
+            access_mode="query",
+            service_name="ChEMBL",
+            observed_at=datetime(2026, 10, 26, tzinfo=UTC),
+        )
+    )
+    replacement_file = tmp_path / "activities.tsv"
+    replacement_file.write_text("activity_id\n1\n", encoding="utf-8")
+    S3PublishedSnapshotRepository(objects).publish(
+        SourceSnapshot(
+            dataset=DatasetId("chembl", "activity_exports"),
+            version=SourceVersion("chembl37-export1"),
+            files=(
+                SnapshotFile(
+                    replacement_file, PurePosixPath("activities.tsv"), None,
+                ),
+            ),
+        )
+    )
+    app = create_app(
+        WebSettings(tmp_path, root_path="/registry"), _services(tmp_path, objects=objects)
+    )
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            for path in (
+                "/",
+                "/datasets/external/chembl/activity_database",
+                "/datasets/external/chembl/activity_database/chembl37",
+            ):
+                response = await client.get(path)
+                assert response.status_code == 200
+                assert '<span class="deprecation-badge">Deprecated</span>' in response.text
+                assert "For new builds, use the ChEMBL activity export snapshot" in response.text
+                assert (
+                    'href="/registry/datasets/source/chembl/activity_exports"'
+                    in response.text
+                )
+    assert repository.get(legacy.dataset, "chembl37") == legacy

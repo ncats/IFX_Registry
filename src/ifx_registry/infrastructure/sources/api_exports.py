@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import re
+import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -64,6 +66,9 @@ class GeneratedSnapshotSource(SourceAdapter, ABC):
     ) -> GeneratedArtifact:
         """Generate and validate the staged artifact."""
 
+    def _validate_generated(self, path: Path, version: SourceVersion) -> None:
+        """Validate the completed artifact before committing the snapshot."""
+
     def fetch(self, request: FetchRequest) -> SourceSnapshot:
         request.progress.report(
             ProgressUpdate("checking", f"Resolving the {self.dataset} snapshot version")
@@ -83,6 +88,7 @@ class GeneratedSnapshotSource(SourceAdapter, ABC):
                 raise SourceValidationError(
                     f"{self.dataset} generated an empty {self.file_name}"
                 )
+            self._validate_generated(staged_path, version)
             workspace.commit()
 
         return SourceSnapshot(
@@ -152,6 +158,69 @@ class RequestedCaptureSource(GeneratedSnapshotSource, ABC):
             discovered_at=captured_at,
             evidence={"type": "requested_capture", "captured_at": captured_at.isoformat()},
         )
+
+
+class ContentCheckedCaptureSource(GeneratedSnapshotSource, ABC):
+    """Version generated exports by their validated output bytes."""
+
+    def discover_latest(self, request: VersionProbeRequest) -> SourceVersion:
+        with tempfile.TemporaryDirectory(prefix="ifx-registry-content-check-") as temporary:
+            path = Path(temporary) / self.file_name
+            self._generate(
+                FetchRequest(Path(temporary), timeout=request.timeout),
+                SourceVersion("content-check"),
+                path,
+            )
+            if not path.is_file() or path.stat().st_size == 0:
+                raise SourceValidationError(
+                    f"{self.dataset} generated an empty {self.file_name}"
+                )
+            digest = _sha256(path)
+        checked_at = self._clock()
+        return SourceVersion(
+            f"sha256-{digest}",
+            version_date=checked_at.date(),
+            discovered_at=checked_at,
+            evidence={
+                "type": "generated_content_sha256",
+                "sha256": digest,
+                "file_name": self.file_name,
+            },
+        )
+
+    def _version_for_fetch(self, request: FetchRequest) -> SourceVersion:
+        if request.expected_version is None:
+            return self.discover_latest(VersionProbeRequest(timeout=request.timeout))
+        value = request.expected_version.value
+        if not re.fullmatch(r"sha256-[0-9a-f]{64}", value):
+            raise SourceValidationError(
+                f"{self.dataset} content version must be sha256- followed by 64 hex digits"
+            )
+        fetched_at = self._clock()
+        return SourceVersion(
+            value,
+            version_date=fetched_at.date(),
+            discovered_at=fetched_at,
+            evidence={
+                "type": "generated_content_sha256",
+                "sha256": value.removeprefix("sha256-"),
+                "file_name": self.file_name,
+            },
+        )
+
+    def _validate_generated(self, path: Path, version: SourceVersion) -> None:
+        expected = version.value.removeprefix("sha256-")
+        actual = _sha256(path)
+        if actual != expected:
+            raise SourceValidationError(
+                f"{self.dataset} content changed between version check and fetch: "
+                f"expected sha256 {expected}, got {actual}"
+            )
+
+
+def _sha256(path: Path) -> str:
+    with path.open("rb") as handle:
+        return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
 CURE_REPORTS_URL = "https://cure-api.ncats.io/v2/reports"
@@ -427,7 +496,7 @@ class _DarkKinomeParser(HTMLParser):
                 )
 
 
-class DarkKinomeSource(RequestedCaptureSource):
+class DarkKinomeSource(ContentCheckedCaptureSource):
     file_name = "dark_kinome_kinases.tsv"
     content_type = "text/tab-separated-values"
     _url = "https://darkkinome.org/data"
@@ -446,16 +515,11 @@ class DarkKinomeSource(RequestedCaptureSource):
 
     @property
     def version_check_description(self) -> str:
-        return "Uses the Registry capture date because the site exposes no release ID."
+        return "Hashes the generated TSV because the site exposes no release ID."
 
     @property
     def version_evidence_urls(self) -> tuple[str, ...]:
         return (self._url,)
-
-    def _probe_upstream(self, request: VersionProbeRequest) -> None:
-        response = self._http.get_text(self._url, timeout=request.timeout.total_seconds())
-        if not _dark_kinome_rows(response.text):
-            raise SourceValidationError("No Dark Kinome kinase links were found")
 
     def _generate(
         self,
@@ -471,7 +535,7 @@ class DarkKinomeSource(RequestedCaptureSource):
         _write_tsv(destination, ("symbol", "url"), rows)
         return GeneratedArtifact(
             response.metadata.final_url,
-            {"record_count": len(rows), "version_method": "requested_capture_date"},
+            {"record_count": len(rows), "version_method": "generated_content_sha256"},
         )
 
 
@@ -489,7 +553,7 @@ query LinkoutGenes {
 """.strip()
 
 
-class ResoluteGenesSource(RequestedCaptureSource):
+class ResoluteGenesSource(ContentCheckedCaptureSource):
     file_name = "resolute_genes.tsv"
     content_type = "text/tab-separated-values"
 
@@ -507,19 +571,11 @@ class ResoluteGenesSource(RequestedCaptureSource):
 
     @property
     def version_check_description(self) -> str:
-        return "Uses the Registry capture date because the GraphQL API exposes no release ID."
+        return "Hashes the generated TSV because the GraphQL API exposes no release ID."
 
     @property
     def version_evidence_urls(self) -> tuple[str, ...]:
         return (RESOLUTE_URL,)
-
-    def _probe_upstream(self, request: VersionProbeRequest) -> None:
-        response = self._http.post_json(
-            RESOLUTE_URL,
-            {"query": RESOLUTE_QUERY},
-            timeout=request.timeout.total_seconds(),
-        )
-        _resolute_genes(response.payload)
 
     def _generate(
         self,
@@ -601,13 +657,13 @@ class ResoluteGenesSource(RequestedCaptureSource):
                 "record_count": len(rows),
                 "genes_with_linkout_ids": genes_with_linkout_ids,
                 "linkout_id_coverage": genes_with_linkout_ids / len(rows),
-                "version_method": "requested_capture_date",
+                "version_method": "generated_content_sha256",
                 "query": RESOLUTE_QUERY,
             },
         )
 
 
-class LinkedOmicsGenesSource(RequestedCaptureSource):
+class LinkedOmicsGenesSource(ContentCheckedCaptureSource):
     file_name = "linkedomics_genes.tsv"
     content_type = "text/tab-separated-values"
     _url = "https://kb.linkedomics.org/data/list/gene"
@@ -626,15 +682,11 @@ class LinkedOmicsGenesSource(RequestedCaptureSource):
 
     @property
     def version_check_description(self) -> str:
-        return "Uses the Registry capture date because the API exposes no release ID."
+        return "Hashes the generated TSV because the API exposes no release ID."
 
     @property
     def version_evidence_urls(self) -> tuple[str, ...]:
         return (self._url,)
-
-    def _probe_upstream(self, request: VersionProbeRequest) -> None:
-        response = self._http.get_json(self._url, timeout=request.timeout.total_seconds())
-        _linkedomics_symbols(response.payload)
 
     def _generate(
         self,
@@ -658,7 +710,7 @@ class LinkedOmicsGenesSource(RequestedCaptureSource):
         _write_tsv(destination, ("symbol", "url"), rows)
         return GeneratedArtifact(
             response.metadata.final_url,
-            {"record_count": len(rows), "version_method": "requested_capture_date"},
+            {"record_count": len(rows), "version_method": "generated_content_sha256"},
         )
 
 

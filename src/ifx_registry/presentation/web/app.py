@@ -348,7 +348,7 @@ def build_services(settings: WebSettings) -> WebServices:
     )
     return WebServices(
         list_sources=ListSources(sources, jobs),
-        check_source=CheckSourceVersion(sources, checks),
+        check_source=CheckSourceVersion(sources, checks, snapshots=cached_sources),
         assess_source_update=AssessSourceUpdate(),
         start_acquisition=StartSourceAcquisition(
             sources,
